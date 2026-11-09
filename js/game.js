@@ -3616,6 +3616,9 @@
       const choose = (dev) => {
         localStorage.setItem('fishingDuel.device', dev);
         document.body.classList.toggle('mobile', dev === 'mobile');
+        // 必须同步更新运行时标志：否则桌面触屏本（自动判了 pc）手选「手机」、
+        // 或玩家想换控制方式时，触摸按键与输入路径不会跟着切换。
+        this.isTouchDevice = dev === 'mobile';
         overlay.classList.add('hidden');
       };
       document.getElementById('platPC').addEventListener('click', () => choose('pc'));
@@ -3757,6 +3760,9 @@
         });
       hold('btnAim', () => { input.aim = true; }, () => { input.aim = false; });
       hold('btnJump', () => { input.jump = true; }, () => { input.jump = false; });
+      hold('btnCrouch', () => { input.crouch = true; }, () => { input.crouch = false; });
+      hold('btnLeanL', () => { this.player.leanL = true; }, () => { this.player.leanL = false; });
+      hold('btnLeanR', () => { this.player.leanR = true; }, () => { this.player.leanR = false; });
 
       // ---------- 点按型按钮 ----------
       const tap = (id, fn) => {
@@ -3772,6 +3778,10 @@
       tap('btnSwap', () => { this.player.switchNext(); Sound.play('swap'); });
       tap('btnBackpack', () => this.toggleInGameOverlay('backpack'));
       tap('btnPause', () => this.mobilePause());
+      tap('btnView', () => {
+        this.player.thirdPerson = !this.player.thirdPerson;
+        this.notice(this.player.thirdPerson ? '第三人称视角' : '第一人称视角', 'info');
+      });
     }
 
     // ================= 联机垂钓 =================

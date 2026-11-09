@@ -1556,28 +1556,49 @@
   .tbtn {
     position: absolute; border-radius: 50%;
     display: flex; align-items: center; justify-content: center;
-    font-family: 'Ma Shan Zheng', serif; color: #fbf6e8;
+    color: #fbf6e8;
     background: rgba(12,28,38,.55); border: 2px solid rgba(255,255,255,.3);
     touch-action: none; -webkit-tap-highlight-color: transparent;
-    user-select: none; text-align: center; line-height: 1.1;
+    user-select: none; padding: 0;
   }
+  .tbtn svg {
+    width: 58%; height: 58%; display: block;
+    fill: none; stroke: currentColor;
+    stroke-linecap: round; stroke-linejoin: round;
+  }
+  .tbtn svg use { pointer-events: none; }
   .tbtn:active { transform: scale(.93); background: rgba(86,224,255,.45); }
+
+  /* 右下战斗区 */
   .tbtn.fire { right: 24px; bottom: 38px; width: 96px; height: 96px;
-    background: rgba(184,64,46,.58); font-size: 22px; }
-  .tbtn.aim { right: 136px; bottom: 66px; width: 64px; height: 64px; font-size: 14px; }
-  .tbtn.jump { right: 40px; bottom: 148px; width: 72px; height: 72px; font-size: 16px; }
-  .tbtn.reload { right: 138px; bottom: 152px; width: 60px; height: 60px; font-size: 13px; }
-  .tbtn.top { width: 52px; height: 52px; font-size: 12px; top: 18px; }
-  .tbtn.bp { right: 22px; }
-  .tbtn.swap { right: 84px; }
-  .tbtn.interact { right: 146px; }
-  .tbtn.pause { left: 22px; background: rgba(44,42,38,.55); }
+    background: rgba(184,64,46,.58); border-color: rgba(255,200,180,.5); }
+  .tbtn.jump { right: 40px; bottom: 150px; width: 70px; height: 70px; }
+  .tbtn.reload { right: 138px; bottom: 150px; width: 60px; height: 60px; }
+
+  /* 左侧动作区（摇杆上方） */
+  .tbtn.aim { left: 168px; bottom: 118px; width: 62px; height: 62px;
+    background: rgba(40,90,130,.55); }
+  .tbtn.crouch { left: 64px; bottom: 196px; width: 56px; height: 56px; }
+  .tbtn.leanl { left: 56px; bottom: 268px; width: 52px; height: 52px; }
+  .tbtn.leanr { left: 122px; bottom: 268px; width: 52px; height: 52px; }
+  .tbtn.view { left: 56px; bottom: 336px; width: 52px; height: 52px; }
+
+  /* 顶栏 */
+  .tbtn.pause { left: 20px; top: 18px; width: 50px; height: 50px; background: rgba(44,42,38,.55); }
+  .tbtn.bp { right: 20px; top: 18px; width: 50px; height: 50px; }
+  .tbtn.swap { right: 80px; top: 18px; width: 50px; height: 50px; }
+  .tbtn.interact { right: 140px; top: 18px; width: 50px; height: 50px; }
+
   @media (max-width: 420px) {
-    #joystick { width: 110px; height: 110px; left: 18px; bottom: 26px; }
-    .tbtn.fire { width: 84px; height: 84px; right: 18px; bottom: 28px; }
-    .tbtn.jump { right: 28px; bottom: 128px; width: 64px; height: 64px; }
-    .tbtn.aim { right: 118px; bottom: 56px; width: 56px; height: 56px; }
-    .tbtn.reload { right: 120px; bottom: 132px; width: 54px; height: 54px; }
+    #joystick { width: 110px; height: 110px; left: 16px; bottom: 24px; }
+    .tbtn.fire { width: 82px; height: 82px; right: 16px; bottom: 26px; }
+    .tbtn.jump { right: 26px; bottom: 128px; width: 60px; height: 60px; }
+    .tbtn.reload { right: 120px; bottom: 128px; width: 54px; height: 54px; }
+    .tbtn.aim { left: 148px; bottom: 104px; width: 56px; height: 56px; }
+    .tbtn.crouch { left: 52px; bottom: 178px; width: 50px; height: 50px; }
+    .tbtn.leanl { left: 46px; bottom: 242px; width: 48px; height: 48px; }
+    .tbtn.leanr { left: 104px; bottom: 242px; width: 48px; height: 48px; }
+    .tbtn.view { left: 46px; bottom: 304px; width: 48px; height: 48px; }
   }
 </style>
 </head>
@@ -1609,6 +1630,65 @@
     <path d="M7 27L19 6"/>
     <path d="M19 6a10 10 0 0 1 6.5 8.5"/>
     <circle cx="26" cy="16.5" r="1.3" fill="currentColor" stroke="none"/>
+  </symbol>
+  <!-- 触摸按钮图标：统一线性，currentColor -->
+  <symbol id="gi-fire" viewBox="0 0 32 32">
+    <circle cx="16" cy="16" r="9"/>
+    <circle cx="16" cy="16" r="4.5"/>
+    <circle cx="16" cy="16" r="1.3" fill="currentColor" stroke="none"/>
+    <path d="M16 3v4M16 25v4M3 16h4M25 16h4"/>
+  </symbol>
+  <symbol id="gi-aim" viewBox="0 0 32 32">
+    <circle cx="16" cy="16" r="7"/>
+    <circle cx="16" cy="16" r="1.6" fill="currentColor" stroke="none"/>
+    <path d="M16 2v6M16 24v6M2 16h6M24 16h6"/>
+  </symbol>
+  <symbol id="gi-jump" viewBox="0 0 32 32">
+    <circle cx="16" cy="8" r="2.6"/>
+    <path d="M16 12v7M16 12l-5 4M16 12l5 4"/>
+    <path d="M16 19l-3 6M16 19l3 6"/>
+  </symbol>
+  <symbol id="gi-reload" viewBox="0 0 32 32">
+    <path d="M13 5h6v5l-1.5 3v13h-3V13L13 10z"/>
+    <path d="M13 8h6"/>
+  </symbol>
+  <symbol id="gi-swap" viewBox="0 0 32 32">
+    <path d="M7 12a8 8 0 0 1 13-3l3 3"/>
+    <path d="M23 6v6h-6"/>
+    <path d="M25 20a8 8 0 0 1-13 3l-3-3"/>
+    <path d="M9 26v-6h6"/>
+  </symbol>
+  <symbol id="gi-bp" viewBox="0 0 32 32">
+    <path d="M11 12V9a5 5 0 0 1 10 0v3"/>
+    <rect x="7" y="12" width="18" height="15" rx="3"/>
+    <path d="M7 18h18M13 22h6"/>
+  </symbol>
+  <symbol id="gi-interact" viewBox="0 0 32 32">
+    <circle cx="16" cy="16" r="10"/>
+    <path d="M16 11v6"/>
+    <circle cx="16" cy="21" r="1.2" fill="currentColor" stroke="none"/>
+  </symbol>
+  <symbol id="gi-pause" viewBox="0 0 32 32">
+    <path d="M12 8v16M20 8v16"/>
+  </symbol>
+  <symbol id="gi-leanl" viewBox="0 0 32 32">
+    <circle cx="12" cy="9" r="3"/>
+    <path d="M12 13v6M12 15l-6 3M12 19l-3 7"/>
+    <path d="M22 10l6-2M22 16l7-2"/>
+  </symbol>
+  <symbol id="gi-leanr" viewBox="0 0 32 32">
+    <circle cx="20" cy="9" r="3"/>
+    <path d="M20 13v6M20 15l6 3M20 19l3 7"/>
+    <path d="M10 10l-6-2M10 16l-7-2"/>
+  </symbol>
+  <symbol id="gi-crouch" viewBox="0 0 32 32">
+    <circle cx="12" cy="8" r="2.6"/>
+    <path d="M12 11c-3 1-4 4-3 7l6 1"/>
+    <path d="M15 19h6M15 19l-2 6M15 19l3 6"/>
+  </symbol>
+  <symbol id="gi-view" viewBox="0 0 32 32">
+    <path d="M3 16s5-8 13-8 13 8 13 8-5 8-13 8S3 16 3 16z"/>
+    <circle cx="16" cy="16" r="3.4"/>
   </symbol>
 </svg>
 
@@ -1749,14 +1829,22 @@
 <div id="touchLayer">
   <div class="look-zone"></div>
   <div id="joystick"><div class="knob"></div></div>
-  <button class="tbtn top pause" id="btnPause">暂<br>停</button>
-  <button class="tbtn top interact" id="btnInteract">交<br>互</button>
-  <button class="tbtn top swap" id="btnSwap">切<br>枪</button>
-  <button class="tbtn top bp" id="btnBackpack">背<br>包</button>
-  <button class="tbtn reload" id="btnReload">装弹</button>
-  <button class="tbtn jump" id="btnJump">跳跃</button>
-  <button class="tbtn aim" id="btnAim">瞄准</button>
-  <button class="tbtn fire" id="btnFire">开火</button>
+  <!-- 左上：暂停 -->
+  <button class="tbtn pause" id="btnPause" aria-label="暂停"><svg class="t-ic"><use href="#gi-pause"/></svg></button>
+  <!-- 右上：背包 / 切枪 / 交互 -->
+  <button class="tbtn bp" id="btnBackpack" aria-label="背包"><svg class="t-ic"><use href="#gi-bp"/></svg></button>
+  <button class="tbtn swap" id="btnSwap" aria-label="切枪"><svg class="t-ic"><use href="#gi-swap"/></svg></button>
+  <button class="tbtn interact" id="btnInteract" aria-label="交互"><svg class="t-ic"><use href="#gi-interact"/></svg></button>
+  <!-- 左侧：人称 / 左探头 / 右探头 / 蹲 / 瞄准 -->
+  <button class="tbtn view" id="btnView" aria-label="切换人称"><svg class="t-ic"><use href="#gi-view"/></svg></button>
+  <button class="tbtn leanl" id="btnLeanL" aria-label="左探头"><svg class="t-ic"><use href="#gi-leanl"/></svg></button>
+  <button class="tbtn leanr" id="btnLeanR" aria-label="右探头"><svg class="t-ic"><use href="#gi-leanr"/></svg></button>
+  <button class="tbtn crouch" id="btnCrouch" aria-label="蹲下"><svg class="t-ic"><use href="#gi-crouch"/></svg></button>
+  <button class="tbtn aim" id="btnAim" aria-label="瞄准"><svg class="t-ic"><use href="#gi-aim"/></svg></button>
+  <!-- 右下：开火 / 跳跃 / 装弹 -->
+  <button class="tbtn reload" id="btnReload" aria-label="装弹"><svg class="t-ic"><use href="#gi-reload"/></svg></button>
+  <button class="tbtn jump" id="btnJump" aria-label="跳跃"><svg class="t-ic"><use href="#gi-jump"/></svg></button>
+  <button class="tbtn fire" id="btnFire" aria-label="开火"><svg class="t-ic"><use href="#gi-fire"/></svg></button>
 </div>
 
 <div id="startOverlay" class="overlay">
@@ -21098,6 +21186,9 @@ window.CLIFF_ASSETS = 'Z2xURgIAAAAkBBEAiAwAAEpTT057ImFjY2Vzc29ycyI6W3siYnVmZmVyV
       const choose = (dev) => {
         localStorage.setItem('fishingDuel.device', dev);
         document.body.classList.toggle('mobile', dev === 'mobile');
+        // 必须同步更新运行时标志：否则桌面触屏本（自动判了 pc）手选「手机」、
+        // 或玩家想换控制方式时，触摸按键与输入路径不会跟着切换。
+        this.isTouchDevice = dev === 'mobile';
         overlay.classList.add('hidden');
       };
       document.getElementById('platPC').addEventListener('click', () => choose('pc'));
@@ -21239,6 +21330,9 @@ window.CLIFF_ASSETS = 'Z2xURgIAAAAkBBEAiAwAAEpTT057ImFjY2Vzc29ycyI6W3siYnVmZmVyV
         });
       hold('btnAim', () => { input.aim = true; }, () => { input.aim = false; });
       hold('btnJump', () => { input.jump = true; }, () => { input.jump = false; });
+      hold('btnCrouch', () => { input.crouch = true; }, () => { input.crouch = false; });
+      hold('btnLeanL', () => { this.player.leanL = true; }, () => { this.player.leanL = false; });
+      hold('btnLeanR', () => { this.player.leanR = true; }, () => { this.player.leanR = false; });
 
       // ---------- 点按型按钮 ----------
       const tap = (id, fn) => {
@@ -21254,6 +21348,10 @@ window.CLIFF_ASSETS = 'Z2xURgIAAAAkBBEAiAwAAEpTT057ImFjY2Vzc29ycyI6W3siYnVmZmVyV
       tap('btnSwap', () => { this.player.switchNext(); Sound.play('swap'); });
       tap('btnBackpack', () => this.toggleInGameOverlay('backpack'));
       tap('btnPause', () => this.mobilePause());
+      tap('btnView', () => {
+        this.player.thirdPerson = !this.player.thirdPerson;
+        this.notice(this.player.thirdPerson ? '第三人称视角' : '第一人称视角', 'info');
+      });
     }
 
     // ================= 联机垂钓 =================
