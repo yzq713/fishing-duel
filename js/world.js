@@ -1081,6 +1081,27 @@
     // 还在异步加载中的 glb 素材计数：主程序靠它决定「进游戏前要不要再等一会」
     let pendingAssets = 0;
 
+    // 素材解析串行器：atob + GLTFLoader.parse 是同步重活，两三个大模型
+    // 同时解析会把主线程连续堵住几十秒 —— 浏览器判定「网页无响应」弹杀进程框。
+    // 排成一条队，解析完一个让出一次事件循环再吃下一个，期间页面还能刷 UI。
+    const parseQueue = [];
+    let parseBusy = false;
+    function queueParse(job) {
+      parseQueue.push(job);
+      pumpParse();
+    }
+    function pumpParse() {
+      if (parseBusy) return;
+      const job = parseQueue.shift();
+      if (!job) return;
+      parseBusy = true;
+      setTimeout(() => {
+        try { job(); } catch (e) { console.warn('[asset] 解析失败', e); }
+        parseBusy = false;
+        if (parseQueue.length) setTimeout(pumpParse, 30);
+      }, 0);
+    }
+
     const PondAsset = (function () {
       const INLINE = window.POND_ASSETS || null;
       const SRC_URL = 'assets/pond/pond_small.glb';
@@ -1113,8 +1134,8 @@
           state = 1;
           pendingAssets++;
           if (!loader) loader = new THREE.GLTFLoader();
-          if (INLINE) loader.parse(b64buf(INLINE), '', ready, fail);
-          else loader.load(SRC_URL, ready, undefined, fail);
+          if (INLINE) queueParse(() => loader.parse(b64buf(INLINE), '', ready, fail));
+          else queueParse(() => loader.load(SRC_URL, ready, undefined, fail));
         }
       };
     })();
@@ -1151,8 +1172,8 @@
               if (window.onWorldAssetReady) { try { window.onWorldAssetReady(); } catch (e) { /* ignore */ } }
             };
             const bad = (e) => { console.warn('[' + tag + '] 素材加载失败', e); state = 0; pendingAssets = Math.max(0, pendingAssets - 1); };
-            if (INLINE) loader.parse(b64buf(INLINE), '', ok, bad);
-            else loader.load(url, ok, undefined, bad);
+            if (INLINE) queueParse(() => loader.parse(b64buf(INLINE), '', ok, bad));
+            else queueParse(() => loader.load(url, ok, undefined, bad));
           }
         };
         cache[inlineKey] = api;
@@ -3539,8 +3560,8 @@
         if (state === 1) return;
         state = 1;
         if (!loader) loader = new THREE.GLTFLoader();
-        if (INLINE) loader.parse(b64buf(INLINE), '', ready, fail);
-        else loader.load(SRC_URL, ready, undefined, fail);
+        if (INLINE) queueParse(() => loader.parse(b64buf(INLINE), '', ready, fail));
+        else queueParse(() => loader.load(SRC_URL, ready, undefined, fail));
       }
 
       // 从源场景里挑出若干顶层节点，克隆成一个新 group

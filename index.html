@@ -1603,14 +1603,13 @@
   .tbtn.jump { right: 40px; bottom: 150px; width: 70px; height: 70px; }
   .tbtn.reload { right: 138px; bottom: 150px; width: 60px; height: 60px; }
 
-  /* 左侧动作区（摇杆上方一列，探头并排、蹲、瞄准） */
+  /* 左侧动作区（摇杆上方一列：探头并排、蹲、切人称、瞄准） */
   .tbtn.aim { left: 165px; bottom: 130px; width: 54px; height: 54px;
     background: rgba(40,90,130,.55); }
   .tbtn.crouch { left: 56px; bottom: 195px; width: 48px; height: 48px; }
+  .tbtn.view { left: 114px; bottom: 195px; width: 48px; height: 48px; }
   .tbtn.leanl { left: 48px; bottom: 255px; width: 44px; height: 44px; }
   .tbtn.leanr { left: 100px; bottom: 255px; width: 44px; height: 44px; }
-  /* 切换人称放顶栏，紧挨暂停键，与左侧探头列分开 */
-  .tbtn.view { left: 72px; top: 16px; bottom: auto; width: 44px; height: 44px; }
 
   /* 顶栏 */
   .tbtn.pause { left: 16px; top: 16px; width: 46px; height: 46px; background: rgba(44,42,38,.55); }
@@ -1625,9 +1624,9 @@
     .tbtn.reload { right: 104px; bottom: 116px; width: 50px; height: 50px; }
     .tbtn.aim { left: 148px; bottom: 116px; width: 48px; height: 48px; }
     .tbtn.crouch { left: 48px; bottom: 178px; width: 44px; height: 44px; }
+    .tbtn.view { left: 96px; bottom: 178px; width: 44px; height: 44px; }
     .tbtn.leanl { left: 42px; bottom: 232px; width: 42px; height: 42px; }
     .tbtn.leanr { left: 92px; bottom: 232px; width: 42px; height: 42px; }
-    .tbtn.view { left: 68px; top: 14px; bottom: auto; width: 40px; height: 40px; }
     .tbtn.pause { left: 12px; top: 12px; width: 40px; height: 40px; }
     .tbtn.bp { right: 12px; top: 12px; width: 40px; height: 40px; }
     .tbtn.swap { right: 58px; top: 12px; width: 40px; height: 40px; }
@@ -14451,8 +14450,10 @@ window.CLIFF_ASSETS = 'Z2xURgIAAAAkBBEAiAwAAEpTT057ImFjY2Vzc29ycyI6W3siYnVmZmVyV
       if (this.thirdPerson && !this.scoped) {
         // 越肩第三人称：镜头在角色右后上方，角色落到画面左下，别压住准星。
         // boom 别小于 3：角色高 1.77，2.4 米的机位装不下全身，只在画面底部露个头。
-        const boom = 4.4 - this.aimBlend * 1.6;
-        const side = 0.95 - this.aimBlend * 0.35;
+        // 拿鱼竿/钓鱼时相机拉近到 2.2，避免矮屏手机上相机被水面/地形挡住黑屏
+        const fishingNow = (this.isRod && this.isRod()) || (this.fishingRef && this.fishingRef.busy);
+        let boom = fishingNow ? 2.2 : (4.4 - this.aimBlend * 1.6);
+        const side = fishingNow ? 0.5 : (0.95 - this.aimBlend * 0.35);
         const pivotY = this.pos.y + 1.42;
         const backX = Math.sin(yaw);
         const backZ = Math.cos(yaw);
@@ -18975,6 +18976,8 @@ window.CLIFF_ASSETS = 'Z2xURgIAAAAkBBEAiAwAAEpTT057ImFjY2Vzc29ycyI6W3siYnVmZmVyV
         this.state = 'menu';
         this.ui.endOverlay.classList.add('hidden');
         this.ui.hud.classList.remove('on');
+        document.getElementById('chatBox').classList.add('hidden');
+        this.net.disconnect();
         this.renderShop();
         this.ui.startOverlay.classList.remove('hidden');
       });

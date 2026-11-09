@@ -1624,8 +1624,10 @@
       if (this.thirdPerson && !this.scoped) {
         // 越肩第三人称：镜头在角色右后上方，角色落到画面左下，别压住准星。
         // boom 别小于 3：角色高 1.77，2.4 米的机位装不下全身，只在画面底部露个头。
-        const boom = 4.4 - this.aimBlend * 1.6;
-        const side = 0.95 - this.aimBlend * 0.35;
+        // 拿鱼竿/钓鱼时相机拉近到 2.2，避免矮屏手机上相机被水面/地形挡住黑屏
+        const fishingNow = (this.isRod && this.isRod()) || (this.fishingRef && this.fishingRef.busy);
+        let boom = fishingNow ? 2.2 : (4.4 - this.aimBlend * 1.6);
+        const side = fishingNow ? 0.5 : (0.95 - this.aimBlend * 0.35);
         const pivotY = this.pos.y + 1.42;
         const backX = Math.sin(yaw);
         const backZ = Math.cos(yaw);

@@ -1351,6 +1351,8 @@
         this.state = 'menu';
         this.ui.endOverlay.classList.add('hidden');
         this.ui.hud.classList.remove('on');
+        document.getElementById('chatBox').classList.add('hidden');
+        this.net.disconnect();
         this.renderShop();
         this.ui.startOverlay.classList.remove('hidden');
       });
@@ -3901,9 +3903,11 @@
       const begin = () => {
         // 素材到齐后一次性把着色器全编掉。灯塔那块 glb 有十几个不同材质，
         // 边走边编实测每次 650~1000ms —— 必须赶在玩家能动之前做完。
+        // 三个预热重活分步走，中间让出主线程：连着跑会几十秒不响应，
+        // 浏览器直接弹「网页无响应」。拆开后每段之间至少能刷一帧加载画面。
         this._warmScene();
-        this._warmAll();
-        this._warmViews();
+        setTimeout(() => this._warmAll(), 50);
+        setTimeout(() => this._warmViews(), 120);
         // 双 rAF + 短延时：确保加载界面已经真正绘制到屏幕上，再开始重活
         requestAnimationFrame(() => {
           requestAnimationFrame(() => {
@@ -4289,8 +4293,8 @@
       if (this._warmPending) {
         this._warmPending = false;
         this._warmScene();
-        this._warmAll();
-        this._warmViews();
+        setTimeout(() => this._warmAll(), 50);
+        setTimeout(() => this._warmViews(), 120);
       }
 
       if (inMenu) {
