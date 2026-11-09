@@ -1,0 +1,22 @@
+# ===== 依赖与工具缓存 =====
+**/node_modules/
+**/.wrangler/
+*.7z.exe
+
+# ===== 开发临时素材（截图 / 裁剪 / 预览页）=====
+shots/
+_shot_*.png
+_crop_*.png
+_preview_*.html
+
+# ===== 静态发布副本（根目录的打包副本，本地保留用于 Netlify 拖拽，不进仓库）=====
+deploy/
+
+# ===== 备份文件 =====
+*.bak
+*.bak_*
+_backup_original/
+
+# ===== 系统 / 编辑器杂项 =====
+.DS_Store
+Thumbs.db

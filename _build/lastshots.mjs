@@ -1,0 +1,36 @@
+import puppeteer from 'puppeteer-core';
+const browser = await puppeteer.launch({ executablePath: 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe', headless: 'new', args: ['--no-sandbox','--use-angle=d3d11','--enable-unsafe-swiftshader','--allow-file-access-from-files','--window-size=1280,760'] });
+const page = await browser.newPage();
+await page.setCacheEnabled(false);
+await page.setViewport({ width: 1280, height: 760, deviceScaleFactor: 1 });
+await page.goto('file:///C:/Users/ASUS/Documents/Trae-CN/temp_20261108_01/fishing-duel/index.html?v=11', { waitUntil: 'load', timeout: 90000 });
+await page.waitForFunction('window.game && window.game.world', { timeout: 60000 });
+await new Promise(r => setTimeout(r, 4200));
+await page.evaluate(() => document.getElementById('soloBtn').click());
+await new Promise(r => setTimeout(r, 300));
+await page.evaluate(() => document.getElementById('charNextBtn').click());
+await new Promise(r => setTimeout(r, 300));
+await page.evaluate(() => document.getElementById('fightBtn').click());
+await new Promise(r => setTimeout(r, 2000));
+await page.evaluate(() => { const g = window.game; g.state='playing'; ['pauseOverlay','startOverlay','charOverlay','weaponOverlay'].forEach(k=>{ if(g.ui[k]) g.ui[k].classList.add('hidden'); }); });
+const b = await page.evaluate(() => window.game.world.beds[0]);
+const hx = b.x + 2.05, hz = b.z + 1.62;
+const W2 = (lx, lz) => [hx - lx, hz - lz];
+const aim = async (from, look) => {
+  await page.evaluate((c) => { const p = window.game.player; p.pos.set(c.from[0],c.from[1],c.from[2]); if(p.vel) p.vel.set(0,0,0); p.noGravity = true;
+    const dx=c.look[0]-c.from[0], dy=c.look[1]-c.from[1], dz=c.look[2]-c.from[2]; const L=Math.hypot(dx,dz)||1;
+    p.yaw=Math.atan2(-dx/L,-dz/L); p.pitch=Math.atan2(dy,L); }, { from, look });
+  await new Promise(r => setTimeout(r, 800));
+  await page.evaluate(() => { try { window.game.clearNotices(); } catch(e){} });
+  await new Promise(r => setTimeout(r, 100));
+};
+// 俯视全岛
+await aim([-8, 30, 32], [0, 0, -4]);
+await page.screenshot({ path: 'D:/下载/final3/8_overview.png' });
+// 夜景室内
+await page.evaluate(() => { const g = window.game; g.hour = 21.4; if (g.world.setDayTime) g.world.setDayTime(g.hour); });
+await new Promise(r => setTimeout(r, 1300));
+const c1 = W2(-2.1, -2.5), l1 = W2(1.9, 1.7);
+await aim([c1[0], 2.75, c1[1]], [l1[0], 1.55, l1[1]]);
+await page.screenshot({ path: 'D:/下载/final3/9_room_night.png' });
+await browser.close();

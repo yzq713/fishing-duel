@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>江南水乡 · 画质 Demo</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #0b1014; }
+  #c { display: block; width: 100%; height: 100%; }
+  #overlay {
+    position: fixed; inset: 0; pointer-events: none;
+    font-family: "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+    color: #eef3f6;
+  }
+  .title {
+    position: absolute; left: 26px; top: 22px;
+    font-size: 20px; font-weight: 600; letter-spacing: 2px;
+    text-shadow: 0 2px 12px rgba(0,0,0,.55);
+  }
+  .title span { display: block; font-size: 11px; font-weight: 400; opacity: .62; letter-spacing: 1px; margin-top: 5px; }
+  .hint {
+    position: absolute; left: 26px; bottom: 22px;
+    font-size: 12px; line-height: 1.9; opacity: .72;
+    text-shadow: 0 1px 8px rgba(0,0,0,.8);
+  }
+  .hint kbd {
+    display: inline-block; min-width: 18px; padding: 0 5px; margin: 0 2px;
+    border: 1px solid rgba(255,255,255,.28); border-radius: 3px;
+    background: rgba(255,255,255,.08); font-size: 11px; text-align: center;
+  }
+  #stats {
+    position: absolute; right: 26px; top: 22px; text-align: right;
+    font-size: 11px; line-height: 1.8; opacity: .66;
+    font-variant-numeric: tabular-nums;
+    text-shadow: 0 1px 8px rgba(0,0,0,.8);
+  }
+  #start {
+    position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+    flex-direction: column; gap: 10px; cursor: pointer;
+    background: radial-gradient(ellipse at center, rgba(12,20,26,.32), rgba(6,10,13,.86));
+    font-family: "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+    color: #eef3f6; transition: opacity .45s ease;
+  }
+  #start .big { font-size: 24px; letter-spacing: 4px; font-weight: 600; }
+  #start .sub { font-size: 12px; opacity: .6; letter-spacing: 1px; }
+  #start.hide { opacity: 0; pointer-events: none; }
+  #loading {
+    position: fixed; left: 50%; top: 50%; transform: translate(-50%,-50%);
+    font-family: "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+    font-size: 12px; color: #b9c8d2; letter-spacing: 2px;
+  }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="overlay">
+  <div class="title">江南水乡<span>SHUIXIANG · VISUAL DEMO</span></div>
+  <div class="hint">
+    <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 移动 &nbsp; <kbd>空格</kbd>/<kbd>C</kbd> 升降 &nbsp; <kbd>Shift</kbd> 加速<br>
+    <kbd>R</kbd> 开关水面反射 &nbsp; <kbd>F</kbd> 切换雾浓度 &nbsp; <kbd>Esc</kbd> 释放鼠标
+  </div>
+  <div id="stats"></div>
+</div>
+<div id="start"><div class="big">江南水乡</div><div class="sub">点击进入 · 自由漫游</div></div>
+<div id="loading">正在构建场景…</div>
+<script src="vendor/three.min.js"></script>
+<script src="js/watertown.js"></script>
+</body>
+</html>

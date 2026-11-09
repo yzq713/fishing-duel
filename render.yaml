@@ -1,0 +1,10 @@
+# Render Blueprint：免费 Node WebSocket 房间中继服务
+# 部署代码位于 server/render，使用免费实例（0.1 CPU / 512MB）
+services:
+  - type: web
+    name: fishing-duel-room
+    runtime: node
+    plan: free
+    rootDir: server/render
+    buildCommand: npm install
+    startCommand: node server.js

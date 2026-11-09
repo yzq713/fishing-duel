@@ -1,0 +1,74 @@
+    // ---------- 灯塔：Fab「Lighthouse」素材，改成海上的礁石灯塔 ----------
+    // 玩家要求「原先的灯塔删了，在海上放一个这个」。老塔是纯程序化堆的
+    // （石砌基座 + 白橙圆环 + 红穹顶 + 守着的小屋），整段删掉换素材。
+    // 素材本身就是「礁石 + 塔 + 守塔人小屋」一整座小岛，所以不搬进岛里，
+    // 直接丢在离岸的海面上，礁石沉一半进水里，塔身露出来当天际线。
+    const LighthouseAsset = glbAsset('LH_ASSETS', 'assets/lh/lh_small.glb', 'lighthouse');
+    let lighthouse = null;
+    (function placeLighthouse() {
+      const a = 1.62;                            // 与旧塔同方位，在船泊位外侧的海面
+      const lr = islandRadiusAt(a) + 17;
+      const lx = Math.cos(a) * lr;
+      const lz = Math.sin(a) * lr;
+
+      const g = new THREE.Group();
+      g.position.set(lx, WATER_Y, lz);
+      g.rotation.y = -a + Math.PI / 2;           // 小屋朝岛内
+      root.add(g);
+
+      lighthouse = { x: lx, z: lz, y: WATER_Y, lampY: WATER_Y + 12 };
+
+      LighthouseAsset.whenReady((gltf) => {
+        const m = gltf.scene;
+        // 素材单位很大（礁石宽 1314、总高 1491），先量包围盒再统一缩到目标尺寸
+        m.updateMatrixWorld(true);
+        const bb = new THREE.Box3().setFromObject(m);
+        const sz = bb.getSize(new THREE.Vector3());
+        const S = 15.4 / Math.max(sz.x, sz.z);   // 礁石直径 ≈ 15.4m
+        m.scale.setScalar(S);
+        m.updateMatrixWorld(true);
+
+        const bb2 = new THREE.Box3().setFromObject(m);
+        const h = bb2.max.y - bb2.min.y;
+        // 水平居中到塔轴，礁石底面压到水面下 2.6m（露出一圈湿礁，塔基不悬空）
+        m.position.x -= (bb2.min.x + bb2.max.x) / 2;
+        m.position.z -= (bb2.min.z + bb2.max.z) / 2;
+        m.position.y -= bb2.min.y + 2.6;
+
+        m.traverse((o) => {
+          if (!o.isMesh) return;
+          o.castShadow = true;
+          o.receiveShadow = true;
+          const mat = o.material;
+          if (!mat) return;
+          // 灯室的玻璃罩在夜里点起来，远处看就是一团暖光
+          if (/topLightGlass|lantern/i.test(mat.name || '')) {
+            mat.emissive = new THREE.Color(0xffd9a0);
+            mat.emissiveIntensity = 0.9;        // 夜里远看是一团暖光，白天也只是玻璃略亮
+          } else if (mat.isMeshStandardMaterial) {
+            // 同一批导出的素材，金属度普遍偏高；没有环境贴图时金属面会发黑
+            mat.metalness = Math.min(mat.metalness || 0, 0.15);
+            mat.needsUpdate = true;
+          }
+        });
+        g.add(m);
+
+        // 塔灯：夜里亮，跟着昼夜系统走
+        const lampY = -2.6 + h * 0.87;
+        const lamp = new THREE.PointLight(0xffcf88, 0, 64, 2);
+        lamp.position.set(0, lampY, 0);
+        g.add(lamp);
+        nightLights.push({ light: lamp, base: 3.4 });
+
+        // 塔身补光：塔灯在灯室里，照不到下面的塔身，远看只剩一根黑剪影。
+        // 在塔身中段挂一盏很弱的暖光，只负责把砖面刷出一点轮廓。
+        const bodyLamp = new THREE.PointLight(0xffb070, 0, 13, 2);
+        bodyLamp.position.set(0, -2.6 + h * 0.56, 0);
+        g.add(bodyLamp);
+        nightLights.push({ light: bodyLamp, base: 0.5 });
+
+        lighthouse.lampY = WATER_Y + lampY;
+        console.log('[lighthouse] 礁石灯塔就位', lx.toFixed(1), lz.toFixed(1), '高', h.toFixed(1));
+      });
+    })();
+

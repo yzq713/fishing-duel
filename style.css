@@ -1,0 +1,10 @@
+﻿
+/* 物品图标 */
+.g-icon { height: 58px; display: flex; align-items: center; justify-content: center; margin-bottom: 4px; }
+.g-icon svg { height: 100%; width: auto; filter: drop-shadow(0 2px 6px rgba(0,0,0,.45)); }
+.gun-card.locked .g-icon { opacity: .35; filter: grayscale(1); }
+.bp-icon { height: 34px; margin-bottom: 4px; display: flex; justify-content: center; }
+.bp-icon svg { height: 100%; width: auto; }
+.a-ic svg { height: 18px; width: 18px; vertical-align: -3px; margin-right: 6px; }
+.c-icon svg { height: 34px; width: 34px; vertical-align: middle; margin-right: 8px; }
+.slot-ic svg { height: 17px; width: 17px; vertical-align: -3px; margin-right: 5px; }

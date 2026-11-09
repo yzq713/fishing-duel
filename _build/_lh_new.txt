@@ -1,0 +1,284 @@
+    // ---------- 灯塔：Fab「Lighthouse」素材，改成海上的礁石灯塔 ----------
+    // 玩家要求「原先的灯塔删了，在海上放一个这个」。老塔是纯程序化堆的
+    // （石砌基座 + 白橙圆环 + 红穹顶 + 守着的小屋），整段删掉换素材。
+    // 素材本身就是「礁石 + 塔 + 守塔人小屋」一整座小岛，所以不搬进岛里，
+    // 直接丢在离岸的海面上，礁石沉一半进水里，塔身露出来当天际线。
+    const LighthouseAsset = glbAsset('LH_ASSETS', 'assets/lh/lh_small.glb', 'lighthouse');
+    let lighthouse = null;
+    let lhBeam = null;        // 夜里扫过海面的光束（灯室里的锥体 + 水面光斑 + 一盏聚光）
+    let lhReef = null;        // 礁石外圈的白沫
+
+    // 海礁：素材自带的那块 Rock 是亮灰平板，直接漂在蓝海面上像一块浮岛。
+    // 这里另做一套湿石头——水线附近压成带藻绿的深色，只有露出水面的顶面收一点光。
+    function makeSeaRockGeo(r, seed) {
+      const geo = new THREE.IcosahedronGeometry(r, 1);
+      const pos = geo.attributes.position;
+      const nz = makeValueNoise(seed, 12);
+      const colors = [];
+      const cWet = new THREE.Color(0x394547);
+      const cDry = new THREE.Color(0x6b7370);
+      const c = new THREE.Color();
+      const v = new THREE.Vector3();
+      for (let i = 0; i < pos.count; i++) {
+        v.set(pos.getX(i), pos.getY(i), pos.getZ(i));
+        const n = nz((v.x / r + 1) * 4.5 + (seed % 9), (v.z / r + 1) * 4.5 + (v.y / r + 1) * 2.8);
+        v.multiplyScalar(0.72 + n * 0.52);
+        pos.setXYZ(i, v.x, v.y * 0.7, v.z);
+        const up = Math.max(0, v.y / r);
+        c.copy(cWet).lerp(cDry, Math.pow(up, 1.25) * 0.9);
+        colors.push(c.r, c.g, c.b);
+      }
+      geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+      geo.computeVertexNormals();
+      return geo;
+    }
+    const seaRockMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, flatShading: true });
+
+    // 水线白沫：一圈带透明度的噪声环，铺在礁石外圈，遮住石头与水面的硬边
+    function makeFoamTex() {
+      const S = 256;
+      const cv = document.createElement('canvas');
+      cv.width = cv.height = S;
+      const cx = cv.getContext('2d');
+      cx.clearRect(0, 0, S, S);
+      for (let i = 0; i < 900; i++) {
+        const a2 = Math.random() * Math.PI * 2;
+        const rr = (0.615 + Math.random() * 0.185) * S / 2;
+        const px = S / 2 + Math.cos(a2) * rr;
+        const py = S / 2 + Math.sin(a2) * rr;
+        const rad = 1.6 + Math.random() * 7.5;
+        const gr = cx.createRadialGradient(px, py, 0, px, py, rad);
+        gr.addColorStop(0, 'rgba(255,255,255,' + (0.10 + Math.random() * 0.30).toFixed(3) + ')');
+        gr.addColorStop(1, 'rgba(255,255,255,0)');
+        cx.fillStyle = gr;
+        cx.beginPath();
+        cx.arc(px, py, rad, 0, Math.PI * 2);
+        cx.fill();
+      }
+      const tex = new THREE.CanvasTexture(cv);
+      tex.needsUpdate = true;
+      return tex;
+    }
+
+    // 塔灯的眩光：远处看是一团暖黄的光球，不是一个小点
+    function makeGlowTex() {
+      const S = 128;
+      const cv = document.createElement('canvas');
+      cv.width = cv.height = S;
+      const cx = cv.getContext('2d');
+      const gr = cx.createRadialGradient(S / 2, S / 2, 0, S / 2, S / 2, S / 2);
+      gr.addColorStop(0, 'rgba(255,246,224,1)');
+      gr.addColorStop(0.18, 'rgba(255,226,170,0.92)');
+      gr.addColorStop(0.45, 'rgba(255,190,120,0.35)');
+      gr.addColorStop(1, 'rgba(255,170,90,0)');
+      cx.fillStyle = gr;
+      cx.fillRect(0, 0, S, S);
+      const tex = new THREE.CanvasTexture(cv);
+      tex.needsUpdate = true;
+      return tex;
+    }
+
+    (function placeLighthouse() {
+      const a = 1.62;                            // 与旧塔同方位，在船泊位外侧的海面
+      const lr = islandRadiusAt(a) + 17;
+      const lx = Math.cos(a) * lr;
+      const lz = Math.sin(a) * lr;
+      const SINK = 2.95;                         // 礁石底面压到水面以下的深度
+
+      const g = new THREE.Group();
+      g.position.set(lx, WATER_Y, lz);
+      g.rotation.y = -a + Math.PI / 2;           // 小屋朝岛内
+      root.add(g);
+
+      lighthouse = { x: lx, z: lz, y: WATER_Y, lampY: WATER_Y + 12 };
+
+      // 礁石外圈的碎礁 + 白沫：素材那块石头是一整块干净的多面体，
+      // 水线一圈硬边特别出戏，铺一层湿碎礁和白沫才像是「从海里长出来的」。
+      function buildReef() {
+        const reef = new THREE.Group();
+        for (let i = 0; i < 28; i++) {
+          const ra = (i / 28) * Math.PI * 2 + (i % 3) * 0.19;
+          const rr = 7.3 + (((i * 37) % 100) / 100) * 4.3;
+          const size = 0.85 + (((i * 53) % 100) / 100) * 2.0;
+          const mesh = new THREE.Mesh(makeSeaRockGeo(size, 910 + i * 29), seaRockMat);
+          const dip = 0.28 + (((i * 71) % 100) / 100) * 0.52;   // 大半沉在水下
+          mesh.position.set(Math.cos(ra) * rr, WATER_Y - size * dip, Math.sin(ra) * rr);
+          mesh.rotation.set(0, ra * 2.3, (((i % 5) - 2) * 0.07));
+          mesh.castShadow = true;
+          mesh.receiveShadow = true;
+          reef.add(mesh);
+        }
+        const foam = new THREE.Mesh(
+          new THREE.PlaneGeometry(24, 24),
+          new THREE.MeshBasicMaterial({
+            map: makeFoamTex(), transparent: true, depthWrite: false,
+            opacity: 0.86, side: THREE.DoubleSide
+          })
+        );
+        foam.rotation.x = -Math.PI / 2;
+        foam.position.y = WATER_Y + 0.025;
+        foam.renderOrder = 1;
+        reef.add(foam);
+        g.add(reef);
+        lhReef = { foam };
+      }
+
+      // 光束：灯室里射出两道对穿的光锥（真灯塔就是这么转的），
+      // 落到水面的那一圈暖光交给海面着色器画（见 oceanMat 的 beam* uniform），
+      // 锥体本身只负责「看得见的那道光」。
+      function buildBeam(lampLocalY) {
+        const root2 = new THREE.Group();
+        root2.position.set(0, lampLocalY, 0);
+        g.add(root2);
+
+        const LEN = 78;
+        const HALF = 0.042;                       // 光锥半角
+        const RAD = Math.tan(HALF) * LEN;
+        // 光轴下压的角度：让光束在 58m 外正好扫到水面
+        const TILT = Math.atan2(lampLocalY, 58);
+
+        const coneGeo = (rad, len) => {
+          const geo = new THREE.ConeGeometry(rad, len, 24, 1, true);
+          geo.translate(0, -len / 2, 0);          // 顶点挪到原点，锥体朝 -Y 张开
+          return geo;
+        };
+        const mats = [];
+        const beamMat = (color, base) => {
+          const mt = new THREE.ShaderMaterial({
+            uniforms: {
+              uColor: { value: new THREE.Color(color) },
+              uOpacity: { value: 0 },
+              uLen: { value: LEN }
+            },
+            vertexShader: [
+              'varying float vT; varying float vF;',
+              'uniform float uLen;',
+              'void main(){',
+              '  vT = clamp(-position.y / uLen, 0.0, 1.0);',
+              '  vec4 mv = modelViewMatrix * vec4(position, 1.0);',
+              '  vec3 n = normalize(normalMatrix * normal);',
+              '  vF = abs(dot(n, normalize(-mv.xyz)));',
+              '  gl_Position = projectionMatrix * mv;',
+              '}'
+            ].join('\n'),
+            fragmentShader: [
+              'varying float vT; varying float vF;',
+              'uniform vec3 uColor; uniform float uOpacity;',
+              'void main(){',
+              // 越靠近灯室越亮，末端整体化进夜色；轮廓边缘按视角淡出，避免出现硬边圆台
+              '  float body = pow(1.0 - vT, 1.7);',
+              '  float soft = smoothstep(0.0, 0.55, vF);',
+              '  gl_FragColor = vec4(uColor, body * soft * uOpacity);',
+              '}'
+            ].join('\n'),
+            transparent: true,
+            depthWrite: false,
+            blending: THREE.AdditiveBlending,
+            side: THREE.DoubleSide
+          });
+          mt.userData.base = base;
+          mats.push(mt);
+          return mt;
+        };
+        const mkBeam = (rad, len, color, base) => {
+          const mesh = new THREE.Mesh(coneGeo(rad, len), beamMat(color, base));
+          mesh.frustumCulled = false;
+          mesh.renderOrder = 4;
+          return mesh;
+        };
+
+        [0, Math.PI].forEach((ya) => {
+          const pivot = new THREE.Group();
+          pivot.rotation.set(0, ya, 0);
+          const tilt = new THREE.Group();
+          tilt.rotation.x = -Math.PI / 2 + TILT;
+          tilt.add(mkBeam(RAD, LEN, 0xffc077, 0.085));            // 外层柔光
+          tilt.add(mkBeam(RAD * 0.40, LEN * 0.93, 0xffeecd, 0.17)); // 内芯
+          pivot.add(tilt);
+          root2.add(pivot);
+        });
+
+        const glow = new THREE.Sprite(new THREE.SpriteMaterial({
+          map: makeGlowTex(), color: 0xffdca8, transparent: true, depthWrite: false,
+          blending: THREE.AdditiveBlending, opacity: 0
+        }));
+        glow.scale.set(8.5, 8.5, 1);
+        root2.add(glow);
+
+        // 一盏不投影的聚光：光束扫过礁石/小屋时，石头会被真的照亮一下
+        const spot = new THREE.SpotLight(0xffd0a0, 0, 130, 0.10, 0.55, 1);
+        spot.position.set(0, 0, 0);
+        const spotT = new THREE.Object3D();
+        spotT.position.set(0, -lampLocalY, 58);
+        spot.target = spotT;
+        root2.add(spotT);
+        root2.add(spot);
+
+        lhBeam = { root: root2, mats, glow, spot, baseYaw: g.rotation.y };
+      }
+
+      LighthouseAsset.whenReady((gltf) => {
+        const m = gltf.scene;
+        // 素材单位很大（礁石宽 1314、总高 1491），先量包围盒再统一缩到目标尺寸
+        m.updateMatrixWorld(true);
+        const bb = new THREE.Box3().setFromObject(m);
+        const sz = bb.getSize(new THREE.Vector3());
+        const S = 15.4 / Math.max(sz.x, sz.z);   // 礁石直径 ≈ 15.4m
+        m.scale.setScalar(S);
+        m.updateMatrixWorld(true);
+
+        const bb2 = new THREE.Box3().setFromObject(m);
+        const h = bb2.max.y - bb2.min.y;
+        // 水平居中到塔轴，礁石底面压到水面下（露出一圈湿礁，塔基不悬空）
+        m.position.x -= (bb2.min.x + bb2.max.x) / 2;
+        m.position.z -= (bb2.min.z + bb2.max.z) / 2;
+        m.position.y -= bb2.min.y + SINK;
+
+        m.traverse((o) => {
+          if (!o.isMesh) return;
+          o.castShadow = true;
+          o.receiveShadow = true;
+          const mat = o.material;
+          if (!mat) return;
+          const nm = (mat.name || '') + ' ' + (o.name || '');
+          // 灯室的玻璃罩在夜里点起来，远处看就是一团暖光
+          if (/topLightGlass|lantern/i.test(nm)) {
+            mat.emissive = new THREE.Color(0xffd9a0);
+            mat.emissiveIntensity = 0.9;        // 夜里远看是一团暖光，白天也只是玻璃略亮
+          } else if (/rock/i.test(nm) && mat.isMeshStandardMaterial) {
+            // 素材的礁石贴图是浅灰的，压在深蓝海面上像一块塑料浮台。
+            // 往青灰的湿石色压一档，剩下的交给外圈碎礁和白沫去接水线。
+            mat.color = new THREE.Color(0x6d7671);
+            mat.roughness = 1;
+            mat.metalness = 0;
+            mat.needsUpdate = true;
+          } else if (mat.isMeshStandardMaterial) {
+            // 同一批导出的素材，金属度普遍偏高；没有环境贴图时金属面会发黑
+            mat.metalness = Math.min(mat.metalness || 0, 0.15);
+            mat.needsUpdate = true;
+          }
+        });
+        g.add(m);
+
+        // 塔灯：夜里亮，跟着昼夜系统走
+        const lampY = -SINK + h * 0.87;
+        const lamp = new THREE.PointLight(0xffcf88, 0, 64, 2);
+        lamp.position.set(0, lampY, 0);
+        g.add(lamp);
+        nightLights.push({ light: lamp, base: 3.4 });
+
+        // 塔身补光：塔灯在灯室里，照不到下面的塔身，远看只剩一根黑剪影。
+        // 在塔身中段挂一盏很弱的暖光，只负责把砖面刷出一点轮廓。
+        const bodyLamp = new THREE.PointLight(0xffb070, 0, 13, 2);
+        bodyLamp.position.set(0, -SINK + h * 0.56, 0);
+        g.add(bodyLamp);
+        nightLights.push({ light: bodyLamp, base: 0.5 });
+
+        lighthouse.lampY = WATER_Y + lampY;
+        buildReef();
+        buildBeam(lampY);
+        if (typeof hourNow === 'number') setDayTime(hourNow);
+        console.log('[lighthouse] 礁石灯塔就位', lx.toFixed(1), lz.toFixed(1), '高', h.toFixed(1));
+      });
+    })();
+

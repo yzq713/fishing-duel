@@ -1,0 +1,40 @@
+import puppeteer from 'puppeteer-core';
+const V = Date.now();
+const URL = 'file:///C:/Users/ASUS/Documents/Trae-CN/temp_20261108_01/fishing-duel/index.html?v=' + V;
+const browser = await puppeteer.launch({ executablePath: 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe', headless: 'new', args: ['--no-sandbox','--use-angle=d3d11','--enable-unsafe-swiftshader','--allow-file-access-from-files'] });
+const page = await browser.newPage();
+await page.setViewport({ width: 1000, height: 640 });
+await page.goto(URL, { waitUntil: 'domcontentloaded' });
+await page.evaluate(() => { try { localStorage.clear(); } catch (e) {} });
+await page.setCacheEnabled(false);
+await page.goto(URL, { waitUntil: 'load', timeout: 120000 });
+await page.waitForFunction('window.game && window.game.world', { timeout: 90000 });
+await new Promise(r => setTimeout(r, 3600));
+await page.evaluate(() => document.getElementById('soloBtn').click());
+await new Promise(r => setTimeout(r, 250));
+await page.evaluate(() => document.getElementById('charNextBtn').click());
+await new Promise(r => setTimeout(r, 250));
+await page.evaluate(() => document.getElementById('fightBtn').click());
+await new Promise(r => setTimeout(r, 1600));
+const out = await page.evaluate(() => {
+  const g = window.game;
+  window.Economy.fishBag = [{ name: '苍龙', points: 3200, tier: 7 }, { name: '恐龙', points: 3800, tier: 7 }];
+  g.renderBackpack();
+  document.getElementById('backpackOverlay').classList.remove('hidden');
+  for (let i = 0; i < 6; i++) { const b = document.querySelector('#bpFish .fc-raise'); if (!b) break; b.click(); }
+  document.getElementById('backpackOverlay').classList.add('hidden');
+  g.state = 'playing';
+  const p = g.player;
+  return { player: [p.pos.x.toFixed(2), p.pos.y.toFixed(2), p.pos.z.toFixed(2)], fishes: g.world.fishes.map(f => ({ n: f.name, ang: +f.ang.toFixed(2), r: f.r, pos: f.group.position.toArray().map(v => +v.toFixed(2)) })) };
+});
+console.log(JSON.stringify(out));
+const out2 = await page.evaluate(() => {
+  const g = window.game;
+  const p = g.player;
+  p.pos.set(0.2, 0.32, 4.6); p.yaw = 0; p.pitch = -0.1;
+  g.world.fishes.forEach((f, i) => { f.ang = -0.9 + i * 1.3; f.r = 1.9 + i * 0.9; f.speed = 0.01; });
+  return 'set';
+});
+await new Promise(r => setTimeout(r, 900));
+console.log(JSON.stringify(await page.evaluate(() => ({ cam: [window.game.player.pos.x.toFixed(2), window.game.player.pos.z.toFixed(2), window.game.player.yaw.toFixed(2)], fishes: window.game.world.fishes.map(f => ({ n: f.name, ang: +f.ang.toFixed(2), pos: f.group.position.toArray().map(v => +v.toFixed(2)) })) }))));
+await browser.close();

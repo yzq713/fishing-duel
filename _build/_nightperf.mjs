@@ -1,0 +1,31 @@
+import puppeteer from 'puppeteer-core';
+const V = Date.now();
+const b = await puppeteer.launch({ executablePath: 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe', headless: 'new', args: ['--no-sandbox', '--use-angle=d3d11', '--enable-unsafe-swiftshader', '--allow-file-access-from-files'] });
+const p = await b.newPage();
+await p.setViewport({ width: 1280, height: 760 });
+const errs = [];
+p.on('pageerror', e => errs.push(String(e).slice(0, 200)));
+await p.goto('file:///C:/Users/ASUS/Documents/Trae-CN/temp_20261108_01/fishing-duel/index.html?v=' + V, { waitUntil: 'load', timeout: 120000 });
+await p.waitForFunction('window.game && window.game.world', { timeout: 90000 });
+await new Promise(r => setTimeout(r, 3000));
+await p.evaluate(() => {
+  const g = window.game, L = g.world.lighthouse;
+  g.state = 'playing';
+  ['pauseOverlay', 'startOverlay', 'charOverlay', 'weaponOverlay'].forEach(k => { if (g.ui[k]) g.ui[k].classList.add('hidden'); });
+  g.hour = 21.2; g.world.setDayTime(21.2);
+  const r = Math.hypot(L.x, L.z), ux = L.x / r, uz = L.z / r;
+  g.player.noGravity = true;
+  g.player.pos.set(ux * 30, 3, uz * 30);
+  g.player.yaw = Math.atan2(-(L.x - ux * 30), -(L.z - uz * 30));
+  g.player.pitch = 0.02;
+});
+await new Promise(r => setTimeout(r, 1500));
+const ft = await p.evaluate(async () => {
+  const t = []; let last = performance.now();
+  await new Promise(res => { let n = 0; (function tick(){ const now = performance.now(); t.push(now - last); last = now; n++; if (n < 90) requestAnimationFrame(tick); else res(); })(); });
+  t.sort((a, b) => a - b);
+  return { p50: +t[Math.floor(t.length * 0.5)].toFixed(1), p90: +t[Math.floor(t.length * 0.9)].toFixed(1), max: +t[t.length - 1].toFixed(1) };
+});
+console.log('night frame ms', JSON.stringify(ft), 'errs', errs.length, errs.slice(0, 2).join(' | '));
+await p.screenshot({ path: 'D:/下载/fishprobe/_night_scene.png' });
+await b.close();

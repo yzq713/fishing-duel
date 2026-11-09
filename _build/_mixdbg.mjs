@@ -1,0 +1,20 @@
+import puppeteer from 'puppeteer-core';
+const b = await puppeteer.launch({ executablePath: 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe', headless: 'new', args: ['--no-sandbox','--use-angle=d3d11','--enable-unsafe-swiftshader','--allow-file-access-from-files','--window-size=1280,760'] });
+const p = await b.newPage();
+await p.setViewport({ width: 1280, height: 760 });
+const errs=[]; p.on('pageerror',e=>errs.push(String(e).slice(0,200)));
+await p.goto('file:///C:/Users/ASUS/Documents/Trae-CN/temp_20261108_01/fishing-duel/index.html?v='+Date.now(),{waitUntil:'load',timeout:120000});
+await p.waitForFunction('window.game && window.game.world',{timeout:90000});
+await new Promise(r=>setTimeout(r,2500));
+await p.evaluate(()=>document.getElementById('soloBtn').click());
+await new Promise(r=>setTimeout(r,400));
+await p.evaluate(()=>document.getElementById('charNextBtn').click());
+await new Promise(r=>setTimeout(r,300));
+await p.evaluate(()=>document.getElementById('fightBtn').click());
+await new Promise(r=>setTimeout(r,2000));
+await p.evaluate(()=>{const g=window.game;g.state='playing';g.hour=21.6;g.wasNight=true;g.world.setDayTime(21.6);g.setBloodNight(true);g.player.noGravity=true;g.player.pos.set(34,2.3,38);g.player.pitch=0.02;});
+const samples=[];
+for(let i=0;i<6;i++){await new Promise(r=>setTimeout(r,700));
+  samples.push(await p.evaluate(()=>{const g=window.game;return {mix:+g.world.getBloodMix().toFixed(3), bn:g.bloodNight, on:g.world.__bloodOn!==undefined?g.world.__bloodOn:null, hour:+g.hour.toFixed(2), st:g.state};}));}
+console.log(JSON.stringify(samples),'errs',errs.length, errs[0]||'');
+await b.close();
