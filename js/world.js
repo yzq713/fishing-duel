@@ -1078,6 +1078,9 @@
     //      叶子的形状与大小都保留，只有整丛被推近/推远）；
     //   2) 白色手绘水纹条 —— 拿原模型的几条当模板，散点铺在水面；
     //   3) 3 条鱼 —— 保留原骨骼层级和烘焙动画，整体压扁后放进浅水。
+    // 还在异步加载中的 glb 素材计数：主程序靠它决定「进游戏前要不要再等一会」
+    let pendingAssets = 0;
+
     const PondAsset = (function () {
       const INLINE = window.POND_ASSETS || null;
       const SRC_URL = 'assets/pond/pond_small.glb';
@@ -1095,18 +1098,20 @@
       function ready(g) {
         src = g;
         state = 2;
+        pendingAssets = Math.max(0, pendingAssets - 1);
         const jobs = queue.splice(0, queue.length);
         jobs.forEach((fn) => { try { fn(g); } catch (e) { console.warn('[pond]', e); } });
         // 新素材进场景后通知主程序补一次着色器预热（详见 game.js 的 warmLateAssets）
         if (window.onWorldAssetReady) { try { window.onWorldAssetReady(); } catch (e) { /* ignore */ } }
       }
-      function fail(err) { console.warn('[pond] 素材加载失败', err); state = 0; }
+      function fail(err) { console.warn('[pond] 素材加载失败', err); state = 0; pendingAssets = Math.max(0, pendingAssets - 1); }
       return {
         whenReady(cb) {
           if (state === 2) { cb(src); return; }
           queue.push(cb);
           if (state === 1) return;
           state = 1;
+          pendingAssets++;
           if (!loader) loader = new THREE.GLTFLoader();
           if (INLINE) loader.parse(b64buf(INLINE), '', ready, fail);
           else loader.load(SRC_URL, ready, undefined, fail);
@@ -1136,14 +1141,16 @@
             queued.push(cb);
             if (state === 1) return;
             state = 1;
+            pendingAssets++;
             if (!loader) loader = new THREE.GLTFLoader();
             const ok = (g) => {
               src = g; state = 2;
+              pendingAssets = Math.max(0, pendingAssets - 1);
               queued.splice(0).forEach((fn) => { try { fn(g); } catch (e) { console.warn('[' + tag + ']', e); } });
               // 同上：素材刚挂进场景，通知主程序补一次预热
               if (window.onWorldAssetReady) { try { window.onWorldAssetReady(); } catch (e) { /* ignore */ } }
             };
-            const bad = (e) => { console.warn('[' + tag + '] 素材加载失败', e); state = 0; };
+            const bad = (e) => { console.warn('[' + tag + '] 素材加载失败', e); state = 0; pendingAssets = Math.max(0, pendingAssets - 1); };
             if (INLINE) loader.parse(b64buf(INLINE), '', ok, bad);
             else loader.load(url, ok, undefined, bad);
           }
@@ -6172,6 +6179,7 @@
 
     return {
       colliders,
+      assetsPending: () => pendingAssets,
       pond,
       pondRadiusAt,
       pondTopY: POND_TOP,

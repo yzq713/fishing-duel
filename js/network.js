@@ -407,6 +407,8 @@
     _onMessage(raw) {
       let m;
       try { m = JSON.parse(raw); } catch (e) { return; }
+      // 无 game（如独立测试实例）时无法创建远程对象，直接忽略，避免读 null 报错
+      if (!this.game) return;
       // MQTT 模式下自己订阅的 topic 也会收到自己发的消息，先滤掉
       if (m.id && m.id === this.myId && m.t !== 'welcome') return;
 
@@ -470,7 +472,7 @@
     }
 
     send(obj) {
-      if (!this.connected) return;
+      if (!obj || !this.connected) return;
       obj.id = this.myId;
       const s = JSON.stringify(obj);
       if (this.mqttClient) {
@@ -482,6 +484,7 @@
 
     _profileMsg() {
       const g = this.game;
+      if (!g || !g.player) return null;
       const p = g.player;
       return {
         t: 'profile',

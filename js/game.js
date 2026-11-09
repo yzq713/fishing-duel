@@ -11,6 +11,28 @@
     return '#' + ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1);
   };
 
+  // ---------------- 触摸手势 / 操作图标（引用 index.html 内的 #giSprite）----------------
+  const GI_SVG = (name) =>
+    '<svg class="gi" viewBox="0 0 32 32" fill="none" stroke="currentColor" ' +
+    'stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+    '<use href="#gi-' + name + '"/></svg>';
+  window.GI = {
+    tap: GI_SVG('tap'),     // 点按：手指 + 点击波纹
+    hold: GI_SVG('hold'),   // 按住：手指 + 向下箭头
+    reel: GI_SVG('reel'),   // 收线轮
+    cast: GI_SVG('cast')    // 抛竿
+  };
+  // 设备判断：严格跟随 bindPlatform 选定的设备（body.mobile）
+  window.isTouchUI = () => document.body.classList.contains('mobile');
+  // 把提示里的 PC 按键名替换为触摸说法（手机端），PC 端原样返回
+  window.ctlText = (s) => {
+    if (!window.isTouchUI()) return s;
+    return String(s)
+      .replace(/按 F|按F/g, '点交互').replace(/按 G|按G/g, '点交互')
+      .replace(/按 T|按T/g, '点交互').replace(/按 B|按B/g, '点背包')
+      .replace(/按 J|按J/g, '点图鉴');
+  };
+
   // ---------------- 音效 ----------------
   const Sound = {
     ctx: null,
@@ -724,7 +746,7 @@
               const total = window.Economy.codexTotal();
               const got = window.Economy.codexCount();
               setTimeout(() => {
-                this.notice('图鉴解锁 ' + got + '/' + total + '：' + name + '（按 J 查看图鉴）', 'good');
+                this.notice(window.ctlText('图鉴解锁 ' + got + '/' + total + '：' + name + '（按 J 查看图鉴）'), 'good');
                 Sound.play('swap');
               }, 1900);
             }
@@ -998,21 +1020,115 @@
     warmLateAssets() {
       // 素材 ready 时由 world 回调置位，animate 里挑一帧把 program 编掉
       window.onWorldAssetReady = () => { this._warmPending = true; };
-      const doIt = () => this._warmScene();
-      // 素材就位时间不确定：600ms 大概率已经有了，后面几次兜住慢网
-      [600, 1500, 3000, 5500, 9000].forEach((ms) => setTimeout(doIt, ms));
+      // 全量预热（关剔除 + 点亮隐藏组）比较贵，只在开头和慢网兜底时各做一次；
+      // 中间几次只做普通的 compile，材质是新到的就补上，已经有的几乎零开销。
+      [600, 1500, 3000, 5500, 9000].forEach((ms, i) => {
+        setTimeout(() => {
+          this._warmScene();
+          if (i === 0 || i === 3) this._warmAll();
+        }, ms);
+      });
     }
 
     // 真正的编译动作：compile 覆盖整棵场景树（不看视锥），再渲染一帧让阴影的
     // depth program 也一并生成。已编过的材质走 program 缓存，重复调用只有遍历开销。
+    // compile() 走的是 traverseVisible，视锥外的、藏在隐藏组里的对象都会漏掉；
+    // 而真正把 program 建出来的是"第一次被渲染"。所以这里把相机依次搬到几个
+    // 关键地点各看一眼（灯塔 / 鱼饵店 / 湖心码头），把那些地方的着色器
+    // 在加载遮罩底下一次编完。玩家看不见这一过程，只觉得加载多了一两秒。
+    _warmViews() {
+      const w = this.world;
+      if (!w || !this.renderer) return;
+      const cam = this.camera;
+      const keepP = cam.position.clone();
+      const keepQ = cam.quaternion.clone();
+      const pts = [];
+      const add = (o, back, dy) => {
+        if (o && typeof o.x === 'number' && typeof o.z === 'number') pts.push([o.x, o.z, back, dy]);
+      };
+      add(w.lighthouse, 16, 2.6);
+      add(w.baitShop, 8, 2.0);
+      add(w.pondDeck, 9, 2.0);
+      add(w.gunShop, 7, 2.0);
+      for (let i = 0; i < pts.length; i++) {
+        const [x, z, back, dy] = pts[i];
+        try {
+          const gy = w.heightAt ? w.heightAt(x, z) : 2;
+          cam.position.set(x, gy + dy, z + back);
+          cam.lookAt(x, gy + 1.4, z);
+          cam.updateMatrixWorld(true);
+          this.renderer.render(this.scene, cam);
+        } catch (e) { /* ignore */ }
+      }
+      cam.position.copy(keepP);
+      cam.quaternion.copy(keepQ);
+      cam.updateMatrixWorld(true);
+    }
+
+    // 真正的杀手锏：临时关掉所有物体的视锥剔除，渲一帧。
+    // 平时散在岛上各处的小物件（草丛、卵石、鸟、灯笼这些每个都是独立材质的小网格）
+    // 只有玩家走近、进视锥才会第一次被渲染，那一刻 three 才现编 program —— 实测
+    // 每次 650~1000ms，一串下来就是"走两步卡死一下"。
+    // 这里把 frustumCulled 全关掉渲一帧，等于强行让它们都过一遍管线，
+    // 之后无论玩家走到哪都是现成的 program。整个过程在加载遮罩下完成。
+    _warmAll() {
+      if (!this.renderer || !this.scene || !this.camera) return;
+      const flags = [];
+      const visFlags = [];
+      try {
+        this.scene.traverse((o) => {
+          if ((o.isMesh || o.isPoints || o.isLine || o.isSprite) && o.frustumCulled) { flags.push(o); o.frustumCulled = false; }
+          // 很多小物件挂在一个默认隐藏的组里（区域显隐 / LOD），
+          // 光关视锥剔除还不够，得把它们连组一起临时点亮
+          if (!o.visible && !o.isCamera && !o.isLight) { visFlags.push(o); o.visible = true; }
+        });
+        this.camera.updateMatrixWorld(true);
+        this.camera.updateProjectionMatrix();
+        // 阴影相机平时只覆盖玩家周围 68m，岛上远处的物件在预热帧里进不了
+        // 阴影 pass，depth 版着色器就还是没编。这里临时把它放大到整座岛。
+        let sun = null;
+        this.scene.traverse((o) => { if (o.isDirectionalLight && o.castShadow && !sun) sun = o; });
+        const sc = sun && sun.shadow ? sun.shadow.camera : null;
+        const keep = sc ? [sc.left, sc.right, sc.top, sc.bottom, sc.near, sc.far] : null;
+        if (sc) {
+          sc.left = -140; sc.right = 140; sc.top = 140; sc.bottom = -140; sc.far = 420;
+          sc.updateProjectionMatrix();
+        }
+        const sm = this.renderer.shadowMap;
+        const prevAuto = sm ? sm.autoUpdate : null;
+        if (sm) { sm.autoUpdate = true; sm.needsUpdate = true; }
+        try { this.renderer.render(this.scene, this.camera); } catch (e) { /* ignore */ }
+        if (sm && prevAuto !== null) sm.autoUpdate = prevAuto;
+        if (sc && keep) {
+          sc.left = keep[0]; sc.right = keep[1]; sc.top = keep[2]; sc.bottom = keep[3]; sc.near = keep[4]; sc.far = keep[5];
+          sc.updateProjectionMatrix();
+        }
+      } catch (e) { /* ignore */ }
+      visFlags.forEach((o) => { o.visible = false; });
+      flags.forEach((o) => { o.frustumCulled = true; });
+      this._warmCount = (this._warmCount || 0) + 1;
+    }
+
     _warmScene() {
       if (!this.renderer || !this.scene || !this.camera) return;
+      const p0 = this.renderer.info ? this.renderer.info.programs.length : -1;
       try { this.camera.updateMatrixWorld(true); } catch (e) { /* ignore */ }
       try { this.renderer.compile(this.scene, this.camera); } catch (e) { /* ignore */ }
+      const p1 = this.renderer.info ? this.renderer.info.programs.length : -1;
+      // 关键：菜单分支会把 shadowMap.autoUpdate 冻成 false，此时渲染不会跑阴影
+      // pass，depth 版着色器就一直没编过 —— 玩家一进游戏第一次更新阴影才现编，
+      // 实测整帧 700~1000ms（这就是"刚走两步卡死一下"的真凶）。这里临时打开跑一帧。
+      const sm = this.renderer.shadowMap;
+      const prevAuto = sm ? sm.autoUpdate : null;
+      if (sm) { sm.autoUpdate = true; sm.needsUpdate = true; }
       try {
         if (this.composer) this.composer.render();
         else this.renderer.render(this.scene, this.camera);
       } catch (e) { /* ignore */ }
+      if (sm && prevAuto !== null) sm.autoUpdate = prevAuto;
+      const p2 = this.renderer.info ? this.renderer.info.programs.length : -1;
+      this._warmCount = (this._warmCount || 0) + 1;
+      if (window.__warmLog) window.__warmLog.push({ t: Math.round(performance.now()), p0, p1, p2, gc: this.renderer.info ? this.renderer.info.memory.geometries : -1 });
     }
 
     bindUI() {
@@ -1044,7 +1160,7 @@
         const b = window.BAITS[id];
         if (!b) return;
         if (window.Economy.buyBait(id, n)) {
-          this.baitMsg('买下 ' + n + ' 份' + b.name + '，已放进背包（按 B 打开，点「装钩」）', true);
+          this.baitMsg(window.ctlText('买下 ' + n + ' 份' + b.name + '，已放进背包（按 B 打开，点「装钩」）'), true);
           Sound.play('catch');
         } else {
           this.baitMsg('积分不足，还差 ' + (cost - window.Economy.balance), false);
@@ -1106,7 +1222,7 @@
             fish: { name: f.name, points: f.points, tier: f.tier, sea: f.sea, dist: f.dist }
           });
           this.renderBackpack();
-          this.notice('把' + f.name + '丢在了地上，走近按 F 可以捡回', 'info');
+          this.notice(window.ctlText('把' + f.name + '丢在了地上，走近按 F 可以捡回'), 'info');
           return;
         }
         const btn = e.target.closest('.fc-raise');
@@ -1146,7 +1262,7 @@
           item: { name: it.name, kind: it.kind, sea: it.sea, color: def ? def.color : 0xbfe3e0 }
         });
         this.renderBackpack();
-        this.notice('丢下了「' + it.name + '」，按 F 可捡回', 'info');
+        this.notice(window.ctlText('丢下了「' + it.name + '」，按 F 可捡回'), 'info');
       });
       // 背包 · 鱼饵：点「装钩」把这一种挂上，点「卸下」回到空钩
       document.getElementById('bpBaits').addEventListener('click', (e) => {
@@ -2641,7 +2757,7 @@
         curEl.innerHTML = '<div><div class="c-name"><span class="c-icon">' + this.iconFor('fist') + '</span>拳头</div><div class="c-desc">近战攻击，无弹药消耗</div></div><div class="c-ammo">∞</div>';
       } else if (p.isRod()) {
         const rodCfg = window.RODS[window.Economy.rod] || window.RODS.bamboo;
-        curEl.innerHTML = '<div><div class="c-name"><span class="c-icon">' + this.iconFor('rod') + '</span>' + rodCfg.name + '</div><div class="c-desc">长按左键蓄力抛竿，抛得越远鱼越好</div></div><div class="c-ammo">' + rodCfg.dist + 'm</div>';
+        curEl.innerHTML = '<div><div class="c-name"><span class="c-icon">' + this.iconFor('rod') + '</span>' + rodCfg.name + '</div><div class="c-desc">' + (window.isTouchUI() ? '按住开火键蓄力，抛得越远鱼越好' : '长按左键蓄力抛竿，抛得越远鱼越好') + '</div></div><div class="c-ammo">' + rodCfg.dist + 'm</div>';
       } else {
         curEl.innerHTML = '<div><div class="c-name"><span class="c-icon">' + this.iconFor(p.gun.id) + '</span>' + p.gun.name + '</div><div class="c-desc">' + p.gun.desc + '</div></div>' +
           '<div class="c-ammo">' + p.ammo + ' / ' + p.reserve + '</div>';
@@ -2709,7 +2825,7 @@
           '<button class="fc-drop" data-fish="' + i + '">丢出</button>' +
           '</div>';
         }).join('')
-        : '<div class="bag-empty">还没有渔获，去湖边或海边抛竿吧（按 3 切到鱼竿）</div>';
+        : '<div class="bag-empty">还没有渔获，去湖边或海边抛竿吧（' + (window.isTouchUI() ? '点「切枪」换鱼竿' : '按 3 切到鱼竿') + '）</div>';
 
       // 鱼饵：四档都列出来，有货的显示份数 + 装钩，没货的置灰
       const baitEl = document.getElementById('bpBaits');
@@ -2830,7 +2946,7 @@
           t: 0,
           baseY: table.y + 0.16
         });
-        this.notice('放到了桌上，按 F 可以拿回来', 'info');
+        this.notice(window.ctlText('放到了桌上，按 F 可以拿回来'), 'info');
         Sound.play('land');
         return;
       }
@@ -2865,7 +2981,7 @@
       const name = window.GUNS[id] ? window.GUNS[id].name : id;
       this.dropItem({ type: 'gun', id, name, slot: i });
       p.selectSlot(p.slots[2] ? 2 : 3);
-      this.notice('丢下 ' + name + '，走到旁边按 F 可以捡回来', 'info');
+      this.notice(window.ctlText('丢下 ' + name + '，走到旁边按 F 可以捡回来'), 'info');
       Sound.play('swap');
     }
 
@@ -2919,7 +3035,7 @@
           slot = p.slots[0] ? (p.slots[1] ? -1 : 1) : 0;
         }
         if (slot < 0) {
-          this.notice('两个武器槽都满了，按 G 先丢一把再捡', 'warn');
+          this.notice(window.ctlText('两个武器槽都满了，按 G 先丢一把再捡'), 'warn');
           return false;
         }
         p.slots[slot] = spec.id;
@@ -2970,7 +3086,11 @@
         const b = this.world.boat;
         if (Math.hypot(this.player.pos.x - b.x, this.player.pos.z - b.z) < 5.2) {
           if (this.player.boardBoat(b)) {
-            this.notice('上船 · W/S 给油，鼠标转舵，A/D 挪位，F 下船', 'good');
+            this.notice(
+              window.isTouchUI()
+                ? '上船 · 摇杆开船，滑动转视角，点交互下船'
+                : '上船 · W/S 给油，鼠标转舵，A/D 挪位，F 下船',
+              'good');
             Sound.play('swap');
             return;
           }
@@ -3043,48 +3163,51 @@
         return;
       }
       let text = '';
+      const touch = window.isTouchUI();
+      const KF = touch ? '点交互' : '按 F';
+      const KG = touch ? '点交互' : '按 G';
       if (this.sleeping) {
-        this.interactTip.textContent = '睡觉中… 按 F 停止睡觉';
+        this.interactTip.textContent = touch ? '睡觉中… 点交互停止' : '睡觉中… 按 F 停止睡觉';
         this.interactTip.classList.remove('hidden');
         return;
       }
       if (this.sitting) {
-        this.interactTip.textContent = '坐着 · 按 F 起身';
+        this.interactTip.textContent = touch ? '坐着 · 点交互起身' : '坐着 · 按 F 起身';
         this.interactTip.classList.remove('hidden');
         return;
       }
       if (this.world.nearestSeat) {
         const seat = this.world.nearestSeat(this.player.pos.x, this.player.pos.z, 1.6);
-        if (seat) text = '按 F 坐下';
+        if (seat) text = KF + ' 坐下';
       }
       if (!this.fishing.busy) {
         const near = this.nearestShop();
-        if (near) text = near.hint;
+        if (near) text = touch ? near.hint.replace('按 F', '点交互') : near.hint;
       }
       if (this.world.nearestTable) {
         const table = this.world.nearestTable(this.player.pos.x, this.player.pos.z, 2.2);
-        if (table) text += (text ? ' · ' : '') + '按 G 把手上物品放到桌上';
+        if (table) text += (text ? ' · ' : '') + KG + ' 放桌上';
       }
       if (this.world.nearestBed) {
         const bed = this.world.nearestBed(this.player.pos.x, this.player.pos.z, 2.8);
-        if (bed) text += (text ? ' · ' : '') + '按 F 睡觉 · 快速到天亮';
+        if (bed) text += (text ? ' · ' : '') + KF + ' 睡觉 · 快速到天亮';
       }
       if (this.world.nearestDoor) {
         const door = this.world.nearestDoor(this.player.pos.x, this.player.pos.z, 3.2);
-        if (door) text += (text ? ' · ' : '') + (door.open ? '按 F 关门' : '按 F 开门');
+        if (door) text += (text ? ' · ' : '') + KF + (door.open ? ' 关门' : ' 开门');
       }
       const d = this.nearestDropped(3.2);
       if (d) {
         const nm = d.spec.name || (d.spec.fish && d.spec.fish.name) || (d.spec.item && d.spec.item.name) || '物品';
-        text += (text ? ' · ' : '') + '按 F 拾取 ' + nm;
+        text += (text ? ' · ' : '') + KF + ' 拾取 ' + nm;
       }
       // 小船：上船后提示油门与下船
       const bt = this.world.boat;
       if (bt) {
         if (this.player.riding) {
-          text += (text ? ' · ' : '') + 'W/S 开船 · 鼠标转舵 · 按 F 下船';
+          text += (text ? ' · ' : '') + (touch ? '摇杆开船 · 点交互下船' : 'W/S 开船 · 鼠标转舵 · 按 F 下船');
         } else if (Math.hypot(this.player.pos.x - bt.x, this.player.pos.z - bt.z) < 5.2) {
-          text += (text ? ' · ' : '') + '按 F 上船驾驶';
+          text += (text ? ' · ' : '') + KF + ' 上船驾驶';
         }
       }
       this.interactTip.textContent = text;
@@ -3617,14 +3740,19 @@
         el.addEventListener('touchend', rel, { passive: false });
         el.addEventListener('touchcancel', rel, { passive: false });
       };
-      // 开火 / 鱼竿蓄力
+      // 开火 / 鱼竿蓄力 / 咬钩收杆（手机端由最大的开火键承担 PC 的左键与空格）
       hold('btnFire',
         () => {
-          if (this.player.isRod() && !this.player.frozen) this.fishing.startCharge();
-          else input.fire = true;
+          const fs = this.fishing;
+          if (fs.state === 'reel') { fs.holdReel(true); return; }
+          if (fs.state === 'bite') { fs.strike(); fs.holdReel(true); return; }
+          if (this.player.isRod() && !this.player.frozen) { fs.startCharge(); return; }
+          input.fire = true;
         },
         () => {
-          if (this.fishing.state === 'charge') this.fishing.releaseCharge();
+          const fs = this.fishing;
+          fs.holdReel(false);
+          if (fs.state === 'charge') fs.releaseCharge();
           input.fire = false;
         });
       hold('btnAim', () => { input.aim = true; }, () => { input.aim = false; });
@@ -3755,21 +3883,42 @@
       this._loading = true;
       const overlay = this.ui.loadingOverlay;
       if (overlay) overlay.classList.remove('hidden');
-      // 双 rAF + 短延时：确保加载界面已经真正绘制到屏幕上，再开始重活
-      requestAnimationFrame(() => {
+      // 先在用户手势里把指针锁上：下面要等素材到齐再开局，等完再请求锁定，
+      // 浏览器就不认这个手势了（NotAllowedError），玩家会卡在"转不了视角"。
+      if (!this.isTouchDevice && document.pointerLockElement !== this.canvas) {
+        try { this.canvas.requestPointerLock(); } catch (e) { /* ignore */ }
+      }
+      const begin = () => {
+        // 素材到齐后一次性把着色器全编掉。灯塔那块 glb 有十几个不同材质，
+        // 边走边编实测每次 650~1000ms —— 必须赶在玩家能动之前做完。
+        this._warmScene();
+        this._warmAll();
+        this._warmViews();
+        // 双 rAF + 短延时：确保加载界面已经真正绘制到屏幕上，再开始重活
         requestAnimationFrame(() => {
-          setTimeout(() => {
-            this._startRoundNow(loadout);
-            // 再等两帧让场景首帧上屏，然后淡出加载界面
-            requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            setTimeout(() => {
+              this._startRoundNow(loadout);
+              // 再等两帧让场景首帧上屏，然后淡出加载界面
               requestAnimationFrame(() => {
-                if (overlay) overlay.classList.add('hidden');
-                this._loading = false;
+                requestAnimationFrame(() => {
+                  if (overlay) overlay.classList.add('hidden');
+                  this._loading = false;
+                });
               });
-            });
-          }, 60);
+            }, 60);
+          });
         });
-      });
+      };
+      // 灯塔 / 鱼市 / 渔屋这些 glb 是异步解析的，没等它们就开局，
+      // 玩家走两步就会被现编译冻住。最多等 2.5 秒（加载遮罩一直在）。
+      const t0 = performance.now();
+      const pend = () => (this.world && this.world.assetsPending ? this.world.assetsPending() : 0);
+      const wait = () => {
+        if (pend() > 0 && performance.now() - t0 < 2500) { setTimeout(wait, 120); return; }
+        begin();
+      };
+      wait();
     }
 
     _startRoundNow(loadout) {
@@ -3856,7 +4005,11 @@
 
       this.acquireControl();
       this.updateHud();
-      this.notice('自由垂钓中 · 按 3 取出鱼竿 · 长按左键蓄力抛竿 · 按 1/2 切枪打鸟打鱼', 'info');
+      this.notice(
+        window.isTouchUI()
+          ? '自由垂钓中 · 点「切枪」取鱼竿 · 按住开火键抛竿'
+          : '自由垂钓中 · 按 3 取出鱼竿 · 长按左键蓄力抛竿 · 按 1/2 切枪打鸟打鱼',
+        'info');
     }
 
     // ---------- 坐凳子 ----------
@@ -4126,6 +4279,8 @@
       if (this._warmPending) {
         this._warmPending = false;
         this._warmScene();
+        this._warmAll();
+        this._warmViews();
       }
 
       if (inMenu) {
@@ -4484,7 +4639,7 @@
     notice(text, kind) {
       const div = document.createElement('div');
       div.className = 'notice ' + (kind || 'info');
-      div.textContent = text;
+      div.innerHTML = text;
       this.ui.notices.appendChild(div);
       while (this.ui.notices.children.length > 4) {
         this.ui.notices.removeChild(this.ui.notices.firstChild);
@@ -4626,21 +4781,27 @@
 
       const playing = this.state === 'playing';
       const spot = this.fishing.nearSpot(p.pos);
+      const touch = window.isTouchUI();
       let promptText = null;
       if (playing && this.locked && !this.fishing.busy && this.fishing.cooldown <= 0 &&
           !!spot && p.alive && !p.frozen) {
         promptText = p.isRod()
-          ? '长按 左键 蓄力抛竿 · 越远鱼越好'
-          : '按 3 切换鱼竿，再长按 左键 抛竿';
+          ? (touch
+              ? '<span class="gi-wrap">' + window.GI.hold + '</span>按住开火键蓄力抛竿'
+              : '长按 左键 蓄力抛竿 · 越远鱼越好')
+          : (touch
+              ? '点「切枪」换鱼竿，再按住开火键抛竿'
+              : '按 3 切换鱼竿，再长按 左键 抛竿');
       }
       // 鱼市提示（站在摊位前按 T 也能开）
       if (!promptText && playing && this.locked && !this.fishing.busy && this.world.baitShop && p.alive) {
         const dShop = Math.hypot(p.pos.x - this.world.baitShop.x, p.pos.z - this.world.baitShop.z);
-        if (dShop < this.world.baitShop.r + 1.6) promptText = '按 T 打开鱼市';
+        if (dShop < this.world.baitShop.r + 1.6)
+          promptText = touch ? '点「交互」打开鱼市' : '按 T 打开鱼市';
       }
       const promptEl = this.ui.prompt;
       if (promptText) {
-        promptEl.textContent = promptText;
+        promptEl.innerHTML = promptText;
         promptEl.classList.remove('hidden');
       } else {
         promptEl.classList.add('hidden');

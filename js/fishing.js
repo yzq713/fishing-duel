@@ -722,8 +722,14 @@
               0x9df3ff, 6 + Math.round(pickedInfo.tier * 1.2));
             if (pickedInfo.tier >= 4) window.FX.ripple(bp, 0x9df3ff);
           }
-          if (this.hooks.notice) this.hooks.notice(
-            pickedInfo.tier >= 4 ? '猛地一沉！大家伙咬钩了，按 空格 收杆' : '有鱼咬钩！按 空格 收杆', 'warn');
+          if (this.hooks.notice) {
+            const big = pickedInfo.tier >= 4;
+            this.hooks.notice(
+              window.isTouchUI()
+                ? (big ? '大家伙咬钩了！' : '有鱼咬钩！') + '<span class="gi-wrap">' + window.GI.tap + '</span>点按收杆'
+                : (big ? '猛地一沉！大家伙咬钩了，按 空格 收杆' : '有鱼咬钩！按 空格 收杆'),
+              'warn');
+          }
           if (this.hooks.audio) this.hooks.audio('bite');
         }
       } else if (this.state === 'bite') {
@@ -769,7 +775,10 @@
       this.reelBar.classList.toggle('on', !!on);
       if (!on) {
         if (this.reelFill) this.reelFill.style.width = '0%';
-        if (this.reelLabel) this.reelLabel.textContent = '按住 空格 收线';
+        if (this.reelLabel) {
+          if (window.isTouchUI()) this.reelLabel.innerHTML = '<span class="gi-wrap">' + window.GI.hold + '</span>按住收线';
+          else this.reelLabel.textContent = '按住 空格 收线';
+        }
       }
     }
 
@@ -906,11 +915,15 @@
         window.FX.sparks(new THREE.Vector3(bob.x, this.waterY + 0.1, bob.z), 0x9df3ff, 8);
       }
       if (this.hooks.notice) {
-        this.hooks.notice(
-          picked.boss
-            ? '日魇之核咬钩了！三阶段：按住拉扯 → 松紧僵持 → 连点破防。张力满了就断线'
-            : '鱼咬实了！按住 空格 把鱼拖上岸（松手会回退）',
-          picked.boss ? 'bad' : 'warn');
+        if (picked.boss) {
+          this.hooks.notice('日魇之核咬钩了！三阶段：按住拉扯 → 松紧僵持 → 连点破防。张力满了就断线', 'bad');
+        } else {
+          this.hooks.notice(
+            window.isTouchUI()
+              ? '鱼咬实了！<span class="gi-wrap">' + window.GI.hold + '</span>按住收线拖上岸（松手回退）'
+              : '鱼咬实了！按住 空格 把鱼拖上岸（松手会回退）',
+            'warn');
+        }
       }
       if (this.hooks.audio) this.hooks.audio('bite');
     }
@@ -1044,7 +1057,9 @@
         if (advancing && this.hooks.notice) {
           this.hooks.notice(
             phase === 1 ? '它开始往回拽了 —— 按住会崩，松手会退，学会找节奏'
-              : '它力竭了！连点 空格 破防，别停',
+              : (window.isTouchUI()
+                  ? '它力竭了！<span class="gi-wrap">' + window.GI.tap + '</span>连点破防，别停'
+                  : '它力竭了！连点 空格 破防，别停'),
             phase === 1 ? 'warn' : 'good');
         }
         if (window.FX) window.FX.sparks(this.getRodTip(), phase === 1 ? 0xffb066 : 0xffe6a0, 10);
