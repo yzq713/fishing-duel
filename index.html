@@ -1123,16 +1123,16 @@
   body.mobile #clock { font-size: 11px; }
 
   body.mobile #playerCard {
-    left: 14px; bottom: 168px; transform: none;
+    left: 160px; bottom: 12px; transform: none;
     padding: 5px 9px; border-radius: 9px;
   }
   body.mobile .hp-row { gap: 7px; }
   body.mobile .hp-badge { min-width: 34px; font-size: 10px; padding: 2px 6px; }
-  body.mobile #hpBar { width: 120px; height: 9px; }
+  body.mobile #hpBar { width: 130px; height: 9px; }
   body.mobile #hpNum { font-size: 11px; width: 26px; }
 
   body.mobile #weaponCard {
-    right: 14px; bottom: auto; top: 78px;
+    right: 120px; bottom: 12px; top: auto;
     min-width: 0; padding: 6px 10px; border-radius: 9px; gap: 3px;
   }
   body.mobile .w-top, body.mobile .w-bottom { gap: 6px; }
@@ -1603,31 +1603,35 @@
   .tbtn.jump { right: 40px; bottom: 150px; width: 70px; height: 70px; }
   .tbtn.reload { right: 138px; bottom: 150px; width: 60px; height: 60px; }
 
-  /* 左侧动作区（摇杆上方，按手机横屏矮视口排布） */
-  .tbtn.aim { left: 150px; bottom: 138px; width: 56px; height: 56px;
+  /* 左侧动作区（摇杆上方一列，探头并排、蹲、瞄准） */
+  .tbtn.aim { left: 165px; bottom: 130px; width: 54px; height: 54px;
     background: rgba(40,90,130,.55); }
-  .tbtn.crouch { left: 56px; bottom: 200px; width: 50px; height: 50px; }
-  .tbtn.leanl { left: 48px; bottom: 260px; width: 46px; height: 46px; }
-  .tbtn.leanr { left: 104px; bottom: 260px; width: 46px; height: 46px; }
-  /* 切换人称放顶栏，紧挨暂停键，避免矮屏跑出屏幕 */
-  .tbtn.view { left: 80px; top: 18px; bottom: auto; width: 46px; height: 46px; }
+  .tbtn.crouch { left: 56px; bottom: 195px; width: 48px; height: 48px; }
+  .tbtn.leanl { left: 48px; bottom: 255px; width: 44px; height: 44px; }
+  .tbtn.leanr { left: 100px; bottom: 255px; width: 44px; height: 44px; }
+  /* 切换人称放顶栏，紧挨暂停键，与左侧探头列分开 */
+  .tbtn.view { left: 72px; top: 16px; bottom: auto; width: 44px; height: 44px; }
 
   /* 顶栏 */
-  .tbtn.pause { left: 20px; top: 18px; width: 50px; height: 50px; background: rgba(44,42,38,.55); }
-  .tbtn.bp { right: 20px; top: 18px; width: 50px; height: 50px; }
-  .tbtn.swap { right: 80px; top: 18px; width: 50px; height: 50px; }
-  .tbtn.interact { right: 140px; top: 18px; width: 50px; height: 50px; }
+  .tbtn.pause { left: 16px; top: 16px; width: 46px; height: 46px; background: rgba(44,42,38,.55); }
+  .tbtn.bp { right: 16px; top: 16px; width: 46px; height: 46px; }
+  .tbtn.swap { right: 68px; top: 16px; width: 46px; height: 46px; }
+  .tbtn.interact { right: 120px; top: 16px; width: 46px; height: 46px; }
 
   @media (max-width: 420px) {
-    #joystick { width: 110px; height: 110px; left: 16px; bottom: 24px; }
-    .tbtn.fire { width: 82px; height: 82px; right: 16px; bottom: 26px; }
-    .tbtn.jump { right: 26px; bottom: 128px; width: 60px; height: 60px; }
-    .tbtn.reload { right: 120px; bottom: 128px; width: 54px; height: 54px; }
-    .tbtn.aim { left: 130px; bottom: 120px; width: 52px; height: 52px; }
-    .tbtn.crouch { left: 48px; bottom: 180px; width: 46px; height: 46px; }
+    #joystick { width: 108px; height: 108px; left: 14px; bottom: 16px; }
+    .tbtn.fire { width: 80px; height: 80px; right: 14px; bottom: 16px; }
+    .tbtn.jump { right: 22px; bottom: 116px; width: 56px; height: 56px; }
+    .tbtn.reload { right: 104px; bottom: 116px; width: 50px; height: 50px; }
+    .tbtn.aim { left: 148px; bottom: 116px; width: 48px; height: 48px; }
+    .tbtn.crouch { left: 48px; bottom: 178px; width: 44px; height: 44px; }
     .tbtn.leanl { left: 42px; bottom: 232px; width: 42px; height: 42px; }
-    .tbtn.leanr { left: 94px; bottom: 232px; width: 42px; height: 42px; }
-    .tbtn.view { left: 78px; top: 18px; bottom: auto; width: 42px; height: 42px; }
+    .tbtn.leanr { left: 92px; bottom: 232px; width: 42px; height: 42px; }
+    .tbtn.view { left: 68px; top: 14px; bottom: auto; width: 40px; height: 40px; }
+    .tbtn.pause { left: 12px; top: 12px; width: 40px; height: 40px; }
+    .tbtn.bp { right: 12px; top: 12px; width: 40px; height: 40px; }
+    .tbtn.swap { right: 58px; top: 12px; width: 40px; height: 40px; }
+    .tbtn.interact { right: 104px; top: 12px; width: 40px; height: 40px; }
   }
 </style>
 </head>
@@ -4572,6 +4576,27 @@ console.warn( 'Scripts "build/three.js" and "build/three.min.js" are deprecated 
     // 还在异步加载中的 glb 素材计数：主程序靠它决定「进游戏前要不要再等一会」
     let pendingAssets = 0;
 
+    // 素材解析串行器：atob + GLTFLoader.parse 是同步重活，两三个大模型
+    // 同时解析会把主线程连续堵住几十秒 —— 浏览器判定「网页无响应」弹杀进程框。
+    // 排成一条队，解析完一个让出一次事件循环再吃下一个，期间页面还能刷 UI。
+    const parseQueue = [];
+    let parseBusy = false;
+    function queueParse(job) {
+      parseQueue.push(job);
+      pumpParse();
+    }
+    function pumpParse() {
+      if (parseBusy) return;
+      const job = parseQueue.shift();
+      if (!job) return;
+      parseBusy = true;
+      setTimeout(() => {
+        try { job(); } catch (e) { console.warn('[asset] 解析失败', e); }
+        parseBusy = false;
+        if (parseQueue.length) setTimeout(pumpParse, 30);
+      }, 0);
+    }
+
     const PondAsset = (function () {
       const INLINE = window.POND_ASSETS || null;
       const SRC_URL = 'assets/pond/pond_small.glb';
@@ -4604,8 +4629,8 @@ console.warn( 'Scripts "build/three.js" and "build/three.min.js" are deprecated 
           state = 1;
           pendingAssets++;
           if (!loader) loader = new THREE.GLTFLoader();
-          if (INLINE) loader.parse(b64buf(INLINE), '', ready, fail);
-          else loader.load(SRC_URL, ready, undefined, fail);
+          if (INLINE) queueParse(() => loader.parse(b64buf(INLINE), '', ready, fail));
+          else queueParse(() => loader.load(SRC_URL, ready, undefined, fail));
         }
       };
     })();
@@ -4642,8 +4667,8 @@ console.warn( 'Scripts "build/three.js" and "build/three.min.js" are deprecated 
               if (window.onWorldAssetReady) { try { window.onWorldAssetReady(); } catch (e) { /* ignore */ } }
             };
             const bad = (e) => { console.warn('[' + tag + '] 素材加载失败', e); state = 0; pendingAssets = Math.max(0, pendingAssets - 1); };
-            if (INLINE) loader.parse(b64buf(INLINE), '', ok, bad);
-            else loader.load(url, ok, undefined, bad);
+            if (INLINE) queueParse(() => loader.parse(b64buf(INLINE), '', ok, bad));
+            else queueParse(() => loader.load(url, ok, undefined, bad));
           }
         };
         cache[inlineKey] = api;
@@ -7030,8 +7055,8 @@ console.warn( 'Scripts "build/three.js" and "build/three.min.js" are deprecated 
         if (state === 1) return;
         state = 1;
         if (!loader) loader = new THREE.GLTFLoader();
-        if (INLINE) loader.parse(b64buf(INLINE), '', ready, fail);
-        else loader.load(SRC_URL, ready, undefined, fail);
+        if (INLINE) queueParse(() => loader.parse(b64buf(INLINE), '', ready, fail));
+        else queueParse(() => loader.load(SRC_URL, ready, undefined, fail));
       }
 
       // 从源场景里挑出若干顶层节点，克隆成一个新 group
@@ -21500,9 +21525,11 @@ window.CLIFF_ASSETS = 'Z2xURgIAAAAkBBEAiAwAAEpTT057ImFjY2Vzc29ycyI6W3siYnVmZmVyV
       const begin = () => {
         // 素材到齐后一次性把着色器全编掉。灯塔那块 glb 有十几个不同材质，
         // 边走边编实测每次 650~1000ms —— 必须赶在玩家能动之前做完。
+        // 三个预热重活分步走，中间让出主线程：连着跑会几十秒不响应，
+        // 浏览器直接弹「网页无响应」。拆开后每段之间至少能刷一帧加载画面。
         this._warmScene();
-        this._warmAll();
-        this._warmViews();
+        setTimeout(() => this._warmAll(), 50);
+        setTimeout(() => this._warmViews(), 120);
         // 双 rAF + 短延时：确保加载界面已经真正绘制到屏幕上，再开始重活
         requestAnimationFrame(() => {
           requestAnimationFrame(() => {
@@ -21888,8 +21915,8 @@ window.CLIFF_ASSETS = 'Z2xURgIAAAAkBBEAiAwAAEpTT057ImFjY2Vzc29ycyI6W3siYnVmZmVyV
       if (this._warmPending) {
         this._warmPending = false;
         this._warmScene();
-        this._warmAll();
-        this._warmViews();
+        setTimeout(() => this._warmAll(), 50);
+        setTimeout(() => this._warmViews(), 120);
       }
 
       if (inMenu) {
