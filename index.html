@@ -1113,6 +1113,34 @@
   body.mobile .kind-chip { flex: none; padding: 7px 11px; white-space: nowrap; }
   body.mobile .inv-btn { width: 100%; padding: 13px; font-size: 13px; }
 
+  /* ===== 手机 HUD 紧凑化：顶栏缩小，体力条/武器卡错位不再粘连 ===== */
+  body.mobile #topHud {
+    gap: 8px; padding: 5px 12px; border-radius: 9px; top: 10px;
+  }
+  body.mobile #topHud .label { font-size: 9px; letter-spacing: 1.5px; }
+  body.mobile #topHud .sep { height: 12px; }
+  body.mobile #scoreNum, body.mobile #balanceHud { font-size: 15px; min-width: 26px; }
+  body.mobile #clock { font-size: 11px; }
+
+  body.mobile #playerCard {
+    left: 14px; bottom: 168px; transform: none;
+    padding: 5px 9px; border-radius: 9px;
+  }
+  body.mobile .hp-row { gap: 7px; }
+  body.mobile .hp-badge { min-width: 34px; font-size: 10px; padding: 2px 6px; }
+  body.mobile #hpBar { width: 120px; height: 9px; }
+  body.mobile #hpNum { font-size: 11px; width: 26px; }
+
+  body.mobile #weaponCard {
+    right: 14px; bottom: auto; top: 78px;
+    min-width: 0; padding: 6px 10px; border-radius: 9px; gap: 3px;
+  }
+  body.mobile .w-top, body.mobile .w-bottom { gap: 6px; }
+  body.mobile #gunName { font-size: 11px; }
+  body.mobile #modeTag { font-size: 9px; }
+  body.mobile .w-label { font-size: 9px; letter-spacing: 1px; }
+  body.mobile #ammoNum { font-size: 14px; }
+
   /* 图鉴 ================= */
   .btn-cyan { background: linear-gradient(120deg, #7ceaff, #3fb8e0); color: #06303c; box-shadow: 0 8px 28px rgba(60, 190, 230, .4), inset 0 1px 0 rgba(255,255,255,.35); }
   .btn-cyan:hover { box-shadow: 0 12px 34px rgba(60, 190, 230, .6); }
