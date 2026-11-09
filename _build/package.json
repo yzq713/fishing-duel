@@ -12,10 +12,15 @@
   "dependencies": {
     "@gltf-transform/core": "^3.10.1",
     "@gltf-transform/functions": "^3.10.1",
+    "aedes": "^1.2.0",
     "esbuild": "^0.21.5",
+    "https-proxy-agent": "^9.1.0",
     "meshoptimizer": "^0.20.0",
+    "mqtt": "^5.16.1",
     "puppeteer-core": "^22.15.0",
     "sharp": "^0.35.5",
-    "three": "^0.152.2"
+    "three": "^0.152.2",
+    "websocket-stream": "^5.5.2",
+    "ws": "^8.22.2"
   }
 }

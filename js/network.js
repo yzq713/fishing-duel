@@ -2,9 +2,14 @@
 (function () {
   const THREE = window.THREE;
 
-  // 部署后把这里换成你的 Cloudflare Worker 地址（不含末尾斜杠与路径）。
-  // 也可以用 URL 参数 ?host= 或 localStorage 覆盖，便于本地调试。
-  const DEFAULT_HOST = 'fishing-duel-room.chalk-blender.workers.dev';
+  // ---------------- 中继配置 ----------------
+  // 默认走公共 MQTT 服务器（EMQX 官方免费公共 broker，无账号 / 无信用卡 / 国内可直连）：
+  // 一个房间 = 一个 topic，消息只转发不落库。缺点是公共服务器，拿到房号的人理论上
+  // 也能订阅同一 topic，只适合和朋友玩；要做私有房间就把 DEFAULT_HOST 填成自建
+  // WebSocket 服务器（例如 Cloudflare Worker），或者用 ?host= 临时指定。
+  const MQTT_URL = 'wss://broker.emqx.io:8084/mqtt';
+  const TOPIC_ROOT = 'fishing-duel/v1/';
+  const DEFAULT_HOST = '';
   const STATE_HZ = 12;          // 本地状态上报频率
   const POS_LERP = 12;          // 远程位置插值速度
   const YAW_LERP = 14;          // 远程朝向插值速度
@@ -21,6 +26,16 @@
 
   function scheme(host) {
     return /^(localhost|127\.|0\.0\.0\.|.*\.(local))/i.test(host) ? 'ws://' : 'wss://';
+  }
+
+  // 中继地址可以被 URL 参数覆盖：?relay=wss://自己的服务器/mqtt
+  // （接入自建 broker 时用，平时不用管）
+  function relayUrl() {
+    try {
+      const q = new URLSearchParams(window.location.search).get('relay');
+      if (q) return q;
+    } catch (e) {}
+    return MQTT_URL;
   }
 
   // 头顶名字 / 提示：Canvas 贴图 Sprite，始终面向相机
@@ -291,6 +306,8 @@
   class NetworkManager {
     constructor() {
       this.ws = null;
+      this.mqttClient = null;
+      this.topic = null;
       this.myId = null;
       this.room = null;
       this.connected = false;
@@ -307,11 +324,21 @@
       this.room = room;
       this._closed = false;
       const host = hostUrl();
-      const url = scheme(host) + host + '/parties/main/' + encodeURIComponent(room);
+      if (host) this._connectWs(host);
+      else this._connectMqtt();
+    }
+
+    _makeId() {
+      return 'fd' + Math.random().toString(36).slice(2, 8) + Date.now().toString(36).slice(-3);
+    }
+
+    // —— 模式 A：自建 WebSocket 服务器（Cloudflare Worker / 自己的 Node 服务） ——
+    _connectWs(host) {
+      const url = scheme(host) + host + '/parties/main/' + encodeURIComponent(this.room);
       this.ws = new WebSocket(url);
       this.ws.onopen = () => {
         this.connected = true;
-        this._emit('已连接到房间 ' + room);
+        this._emit('已连接到房间 ' + this.room);
         // 进房先把自己的资料（名字/外观/装备）发出去
         this.send(this._profileMsg());
       };
@@ -324,9 +351,75 @@
       this.ws.onerror = () => this._emit('连接出错，检查网络或服务器地址');
     }
 
+    // —— 模式 B：公共 MQTT 中继（默认，免账号） ——
+    _connectMqtt() {
+      const mqtt = window.mqtt;
+      if (!mqtt) { this._emit('联机组件没加载成功，请刷新页面'); return; }
+      if (!this.myId) this.myId = this._makeId();
+      const topic = TOPIC_ROOT + encodeURIComponent(this.room);
+      this.topic = topic;
+      this._emit('正在连接联机中继…');
+
+      const client = mqtt.connect(relayUrl(), {
+        clientId: this.myId,
+        clean: true,
+        keepalive: 30,
+        connectTimeout: 12000,
+        reconnectPeriod: 4000,
+        protocolVersion: 4,
+        // 意外掉线（关标签页 / 断网）时由服务器代发「离开」，其他玩家的画面里
+        // 我们的角色会立刻消失，不用等超时
+        will: {
+          topic: topic,
+          payload: JSON.stringify({ t: 'leave', id: this.myId }),
+          qos: 0,
+          retain: false
+        }
+      });
+      this.mqttClient = client;
+
+      client.on('connect', () => {
+        client.subscribe(topic, { qos: 0 }, (err) => {
+          if (err) { this._emit('加入房间失败：' + err.message); return; }
+          this.connected = true;
+          this._emit('已连接到房间 ' + this.room);
+          // 打招呼：房间里已有的人会回 helloack，我们就能把他们建出来
+          this.send({ t: 'hello' });
+          this.send(this._profileMsg());
+        });
+      });
+      client.on('message', (t, payload) => {
+        if (t !== topic) return;
+        this._onMessage(payload.toString());
+      });
+      client.on('reconnect', () => this._emit('正在重新连接联机中继…'));
+      client.on('close', () => {
+        if (!this.connected) return;
+        this.connected = false;
+        this._clearRemotes();
+        if (!this._closed) this._emit('与房间断开（正在自动重连）');
+      });
+      client.on('error', (e) => {
+        this._emit('中继连接出错：' + (e && e.message ? e.message : e));
+      });
+    }
+
     _onMessage(raw) {
       let m;
       try { m = JSON.parse(raw); } catch (e) { return; }
+      // MQTT 模式下自己订阅的 topic 也会收到自己发的消息，先滤掉
+      if (m.id && m.id === this.myId && m.t !== 'welcome') return;
+
+      // 免服务器版的握手：进房的人喊 hello，房里的人回 helloack 并把自己的资料带上
+      if (m.t === 'hello') {
+        this._ensure(m.id);
+        this.send({ t: 'helloack' });
+        this.send(this._profileMsg());
+        return;
+      }
+      if (m.t === 'helloack') { this._ensure(m.id); return; }
+      if (m.t === 'leave') { this._remove(m.id); return; }
+
       if (m.t === 'welcome') {
         this.myId = m.id;
         for (const pid of (m.peers || [])) this._ensure(pid);
@@ -377,9 +470,13 @@
     }
 
     send(obj) {
-      if (this.ws && this.ws.readyState === 1) {
-        obj.id = this.myId;
-        this.ws.send(JSON.stringify(obj));
+      if (!this.connected) return;
+      obj.id = this.myId;
+      const s = JSON.stringify(obj);
+      if (this.mqttClient) {
+        this.mqttClient.publish(this.topic, s, { qos: 0 });
+      } else if (this.ws && this.ws.readyState === 1) {
+        this.ws.send(s);
       }
     }
 
@@ -440,8 +537,25 @@
     leave() {
       this._closed = true;
       this._clearRemotes();
+      const c = this.mqttClient;
+      this.mqttClient = null;
+      if (c) {
+        try {
+          // 主动退出时 MQTT 不会触发 will，得自己喊一声「我走了」。
+          // 注意不能 publish 完立刻 end()：强制关闭会把还没发出去的包一起冲掉，
+          // 结果房间里的其他人一直挂着我们的角色。
+          if (this.connected) {
+            c.publish(this.topic, JSON.stringify({ t: 'leave', id: this.myId }), { qos: 0 }, () => {
+              setTimeout(() => { try { c.end(true); } catch (e) {} }, 150);
+            });
+          } else {
+            c.end(true);
+          }
+        } catch (e) {}
+      }
       if (this.ws) {
         try { this.ws.close(); } catch (e) {}
+        this.ws = null;
       }
       this.connected = false;
     }

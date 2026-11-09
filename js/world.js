@@ -312,6 +312,16 @@
       shadowFocusZ = z;
       placeSun();
     }
+
+    // 画质档位切换阴影精度：贴图尺寸变了必须把旧的 depth map 丢掉重建，
+    // 否则 three 会继续用旧尺寸的 RT（画面会出现阴影错位/闪烁）
+    function setShadowQuality(px) {
+      const n = Math.max(512, Math.min(4096, px | 0));
+      if (sun.shadow.mapSize.x === n) return n;
+      sun.shadow.mapSize.set(n, n);
+      if (sun.shadow.map) { sun.shadow.map.dispose(); sun.shadow.map = null; }
+      return n;
+    }
     placeSun();
 
     // 月光：夜间提供偏冷的低强度方向光，保证还能看清路和敌人
@@ -1087,6 +1097,8 @@
         state = 2;
         const jobs = queue.splice(0, queue.length);
         jobs.forEach((fn) => { try { fn(g); } catch (e) { console.warn('[pond]', e); } });
+        // 新素材进场景后通知主程序补一次着色器预热（详见 game.js 的 warmLateAssets）
+        if (window.onWorldAssetReady) { try { window.onWorldAssetReady(); } catch (e) { /* ignore */ } }
       }
       function fail(err) { console.warn('[pond] 素材加载失败', err); state = 0; }
       return {
@@ -1128,6 +1140,8 @@
             const ok = (g) => {
               src = g; state = 2;
               queued.splice(0).forEach((fn) => { try { fn(g); } catch (e) { console.warn('[' + tag + ']', e); } });
+              // 同上：素材刚挂进场景，通知主程序补一次预热
+              if (window.onWorldAssetReady) { try { window.onWorldAssetReady(); } catch (e) { /* ignore */ } }
             };
             const bad = (e) => { console.warn('[' + tag + '] 素材加载失败', e); state = 0; };
             if (INLINE) loader.parse(b64buf(INLINE), '', ok, bad);
@@ -6194,6 +6208,7 @@
       getBatCount: () => batWant,
       isSunUp,
       focusShadow,
+      setShadowQuality,
       addPondFish,
       pondStat,
       raised,

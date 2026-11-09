@@ -489,9 +489,12 @@
       // 这里先清一遍再读 loadout，否则背包槽位会指到不存在的枪上。
       if (window.Economy && window.Economy.sanitize) window.Economy.sanitize();
       this.canvas = document.getElementById('game');
-      this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas, antialias: true });
-      // DPR 上限 1.5：后处理链本身跑在 CSS 像素分辨率上，DPR>1.5 只放大最终上屏 blit 的开销
-      this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
+      this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas, antialias: true,
+        // 笔记本双显卡时优先要独显，否则 Chrome 可能一直用核显跑
+        powerPreference: 'high-performance' });
+      // 上屏分辨率 = resScale，不再乘 devicePixelRatio。后处理链的 RT 一直是 CSS 像素尺寸，
+      // canvas 撑到 DPR 倍只会让最后那次全屏 blit 多算 2.25 倍像素，画面不会更清楚。
+      this.renderer.setPixelRatio(1);
       this.renderer.setSize(window.innerWidth, window.innerHeight);
       // ---------- 动态分辨率（帧率治理） ----------
       // 后处理链（bloom 5 级 mip + FXAA + 分级）全是全屏 pass，分辨率是最大的性能杠杆。
@@ -500,6 +503,18 @@
       this.resScale = 1;
       this._resLevels = [1, 0.88, 0.75, 0.66, 0.55];
       this._emaDt = 16.7; this._slowN = 0; this._goodN = 0; this._resCooldown = 0;
+
+      // ---------- 画质档位 ----------
+      // 白天最贵的一笔是阴影贴图（4096² 里重画整座岛），其次是全屏 bloom 的 5 级 mip。
+      // 按显卡分三档，首次进游戏自动判定一次，之后可在「设置」里改，存 localStorage。
+      this.quality = 'mid';
+      this._qualityCfg = {
+        high: { shadow: 4096, start: 1, levels: [1, 0.88, 0.75, 0.66, 0.55], shadowMs: 33, bloom: true },
+        // mid：bloom 只在夜间开。白天草地上没有强高光，泛光对画面几乎无贡献，
+        // 却是整条后处理链里最贵的一段（实测关掉直接 +48% 帧率）。
+        mid: { shadow: 2048, start: 0.9, levels: [0.9, 0.8, 0.7, 0.6, 0.5], shadowMs: 50, bloom: 'night' },
+        low: { shadow: 1024, start: 0.7, levels: [0.7, 0.6, 0.5, 0.42], shadowMs: 100, bloom: false }
+      };
       this.renderer.shadowMap.enabled = true;
       this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
       this.renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -541,7 +556,10 @@
         this.composer.addPass(new THREE.RenderPass(this.scene, this.camera));
 
         // Bloom：柔和泛光（强度 0.42、阈值 0.82、半径 0.75）；和 hitstop / player.bloom 动态联动
-        this.bloomPass = new THREE.UnrealBloomPass(size, 0.34, 0.62, 0.88);
+        // 半分辨率：bloom 本身是大范围模糊，降到 1/2 尺寸肉眼看不出差别，
+        // 但 5 级 mip 的填充成本直接掉到 1/4（弱 GPU 上这是仅次于阴影的一笔）
+        const bsize = new THREE.Vector2(Math.max(64, Math.round(W * 0.5)), Math.max(64, Math.round(H * 0.5)));
+        this.bloomPass = new THREE.UnrealBloomPass(bsize, 0.34, 0.62, 0.88);
         this.bloomPass.name = 'bloom';
         this.composer.addPass(this.bloomPass);
 
@@ -609,6 +627,26 @@
       }
 
       this.world = window.World.create(this.scene);
+      // 画质：优先用玩家在设置里选过的，没有就按显卡自动判一次
+      // 先探测一次 GPU：即使存档里有画质档位也要探，因为 GPU 名称和「软件渲染」标记
+      // 只在 detectQuality 里记录（软件渲染警告、帧率角标都要用）
+      const autoQ = this.detectQuality();
+      let q0 = autoQ;
+      const qUrl = (location.search.match(/[?&]q=(high|mid|low)/) || [])[1];
+      if (qUrl) q0 = qUrl;
+      else {
+        try {
+          // 画质方案改版（档位含义变了）时丢掉旧选择，否则老存档里的
+          // 'high' 会一直压着新的自动判定，玩家永远卡在旧设置上
+          if (localStorage.getItem('fishingDuel.qver') !== '3') {
+            localStorage.removeItem('fishingDuel.quality');
+            localStorage.setItem('fishingDuel.qver', '3');
+          }
+          const saved = localStorage.getItem('fishingDuel.quality');
+          if (saved && this._qualityCfg[saved]) q0 = saved;
+        } catch (e) { /* ignore */ }
+      }
+      this.applyQuality(q0, false);
       // 天空环境贴图会作为 IBL 给所有 PBR 材质补光。默认强度 1.0 时相当于给
       // 每个物体都加了层柔和天光，明暗被抹平、颜色被冲淡，因此统一压到 0.45。
       this.scene.traverse((o) => {
@@ -946,7 +984,35 @@
       this.net = new window.NetworkManager();
       this.bindPlatform();
       this.bindMultiplayer();
+      this.warmLateAssets();
       this.renderer.setAnimationLoop(() => this.animate());
+    }
+
+    // ---------- 迟到的素材补预热 ----------
+    // 灯塔 / 鱼市 / 渔屋 / 湖 这些 glb 是异步加载的，构造函数里那次统一预热
+    // 跑的时候它们往往还没到位，于是玩家第一次走到它们面前，几十个材质要现编译：
+    // 实测灯塔每块 650~860ms，一串下来三四秒硬卡顿（这就是"走两步卡一下"的真凶）。
+    // 这里在启动后补几次「异步编译 + 渲染一帧」——compileAsync 走
+    // KHR_parallel_shader_compile，在主线程之外编译，菜单界面不会被拖住；
+    // 已经编过的材质会被 three 的 program 缓存直接跳过，重复调用几乎没有开销。
+    warmLateAssets() {
+      // 素材 ready 时由 world 回调置位，animate 里挑一帧把 program 编掉
+      window.onWorldAssetReady = () => { this._warmPending = true; };
+      const doIt = () => this._warmScene();
+      // 素材就位时间不确定：600ms 大概率已经有了，后面几次兜住慢网
+      [600, 1500, 3000, 5500, 9000].forEach((ms) => setTimeout(doIt, ms));
+    }
+
+    // 真正的编译动作：compile 覆盖整棵场景树（不看视锥），再渲染一帧让阴影的
+    // depth program 也一并生成。已编过的材质走 program 缓存，重复调用只有遍历开销。
+    _warmScene() {
+      if (!this.renderer || !this.scene || !this.camera) return;
+      try { this.camera.updateMatrixWorld(true); } catch (e) { /* ignore */ }
+      try { this.renderer.compile(this.scene, this.camera); } catch (e) { /* ignore */ }
+      try {
+        if (this.composer) this.composer.render();
+        else this.renderer.render(this.scene, this.camera);
+      } catch (e) { /* ignore */ }
     }
 
     bindUI() {
@@ -1173,7 +1239,7 @@
         this.ui.startOverlay.classList.remove('hidden');
       });
       document.getElementById('resumeBtn').addEventListener('click', () => {
-        this.canvas.requestPointerLock();
+        this.acquireControl();
       });
       document.getElementById('endBtn').addEventListener('click', () => {
         this.finishRound();
@@ -1213,8 +1279,52 @@
       });
       document.getElementById('settingsBtn').addEventListener('click', () => {
         this.ui.startOverlay.classList.add('hidden');
+        this.refreshQualityUI();
         document.getElementById('settingsOverlay').classList.remove('hidden');
       });
+      // 画质档位按钮（设置页和暂停页各有一组，共用一个 data-q）
+      const qbtns = document.querySelectorAll('.qbtn');
+      for (let i = 0; i < qbtns.length; i++) {
+        qbtns[i].addEventListener('click', (ev) => {
+          this.applyQuality(ev.currentTarget.dataset.q, true);
+        });
+      }
+      this.refreshQualityUI();
+
+      // 浏览器关了硬件加速 → WebGL 退化成软件渲染，降画质也救不回来，
+      // 只能直接告诉玩家去开（这是「明显卡顿」里唯一无法靠改代码解决的一类）
+      if (this._softGL) {
+        const panel = document.querySelector('#startOverlay .panel');
+        if (panel) {
+          const warn = document.createElement('p');
+          warn.className = 'glwarn';
+          warn.innerHTML = '检测到浏览器正在<b>软件渲染</b>（硬件加速被关闭），画面会非常卡。'
+            + '请打开 <b>设置 → 系统 → 使用图形加速</b>，重启浏览器后再进游戏。';
+          const row = panel.querySelector('.mode-row');
+          if (row) panel.insertBefore(warn, row); else panel.appendChild(warn);
+        }
+      }
+
+      // 帧率角标：游戏里按 F3 开/关（?stats=1 也能直接打开）。
+      // 软件渲染时默认打开，玩家能立刻看见"只有 8fps"，而不是笼统觉得"好卡"。
+      this._statsOn = /[?&]stats=1/.test(location.search) || !!this._softGL;
+      {
+        const el = document.createElement('div');
+        el.id = 'fpsTag';
+        el.style.cssText = 'position:fixed;left:10px;bottom:10px;z-index:9999;padding:5px 9px;'
+          + 'border-radius:6px;background:rgba(18,20,18,.66);color:#e8f0e2;'
+          + 'font:12px/1.5 ui-monospace,Consolas,monospace;pointer-events:none;white-space:pre';
+        if (!this._statsOn) el.style.display = 'none';
+        document.body.appendChild(el);
+        this._fpsEl = el; this._fpsN = 0; this._fpsT = 0;
+        window.addEventListener('keydown', (ev) => {
+          if (ev.key !== 'F3') return;
+          ev.preventDefault();
+          this._statsOn = !this._statsOn;
+          el.style.display = this._statsOn ? '' : 'none';
+          this._fpsN = 0; this._fpsT = 0;
+        });
+      }
       document.getElementById('settingsBackBtn').addEventListener('click', () => {
         document.getElementById('settingsOverlay').classList.add('hidden');
         this.ui.startOverlay.classList.remove('hidden');
@@ -3189,6 +3299,7 @@
         this.overlaySource = 'game';
         this.overlayKind = kind;
         this.state = 'paused';
+        if (this.isTouchDevice) this.locked = false;
         this.input.fire = false;
         this.input.aim = false;
         if (document.exitPointerLock) document.exitPointerLock();
@@ -3237,7 +3348,7 @@
       this.ui.tradeOverlay.classList.add('hidden');
       this.overlaySource = null;
       this.overlayKind = null;
-      this.canvas.requestPointerLock();
+      this.acquireControl();
     }
 
     resize() {
@@ -3245,12 +3356,17 @@
       this.camera.aspect = w / h;
       this.camera.updateProjectionMatrix();
       const s = this.resScale || 1;
-      this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5) * s);
+      // 只按 resScale 缩放，不乘 DPR（理由见构造里 setPixelRatio 的注释）
+      this.renderer.setPixelRatio(s);
       this.renderer.setSize(w, h);
       // 后处理链按「缩放后的像素数」走：resScale=0.75 时全屏 pass 少画 44% 像素
       const rw = Math.max(320, Math.round(w * s)), rh = Math.max(240, Math.round(h * s));
       if (this.composer) {
         this.composer.setSize(rw, rh);
+        // composer.setSize 会把 bloom 一起设成全分辨率，这里再压回半分辨率
+        if (this.bloomPass) {
+          this.bloomPass.setSize(Math.max(64, Math.round(rw * 0.5)), Math.max(64, Math.round(rh * 0.5)));
+        }
         if (this.fxaaPass) this.fxaaPass.material.uniforms['resolution'].value.set(1 / rw, 1 / rh);
         if (this.gradePass && this.gradePass.material.uniforms.resolution) {
           this.gradePass.material.uniforms.resolution.value.set(rw, rh);
@@ -3275,27 +3391,259 @@
       if (this.state !== 'playing') { this._slowN = this._goodN = 0; return; }
       this._emaDt += (dtMs - this._emaDt) * 0.05;
       if (this._resCooldown > 0) { this._resCooldown -= dtMs; return; }
-      if (this._emaDt > 25) {
-        if (++this._slowN > 90) this.stepResolution(-1);      // 持续掉帧 → 降档
+      // 门槛从 25ms 降到 20ms（50fps）：25ms 意味着只有掉到 40fps 以下才降档，
+      // 而 45~50fps 的抖动玩家已经能明显感觉到了
+      if (this._emaDt > 20) {
+        if (++this._slowN > 45) {
+          // 分辨率还能降就降；已经降到底还是慢，说明瓶颈不在像素填充，
+          // 继续压分辨率只会糊画面，改为整体降一档（关阴影精度 + 关 bloom）
+          if (!this.stepResolution(-1)) this._floorSlower(dtMs);
+        }
       } else this._slowN = 0;
-      if (this._emaDt < 18) {
-        if (++this._goodN > 600) this.stepResolution(1);      // 持续流畅 → 升档
+      if (this._emaDt < 17) {
+        if (++this._goodN > 480) this.stepResolution(1);      // 持续流畅 → 升档（~8s）
       } else this._goodN = 0;
+    }
+
+    // 分辨率已降到最低仍持续掉帧：说明瓶颈不是填充率（像素数量），
+    // 而是后处理/draw call 这类固定开销。这时候再压分辨率只会更糊，
+    // 只有整体降档（低精度阴影 + 关 bloom）才有意义。
+    _floorSlower(dtMs) {
+      this._floorMs = (this._floorMs || 0) + dtMs;
+      if (this._floorMs < 2500 || this.quality === 'low') return;
+      this._floorMs = 0;
+      this.applyQuality('low', true);
+      if (this.notice) this.notice('画面持续掉帧，已自动切到「流畅」画质（设置里可改回）', 'info');
+    }
+
+    // 首次进游戏判定一次显卡档位（判错了玩家可以在设置里手动改）
+    detectQuality() {
+      try {
+        const gl = this.renderer.getContext();
+        const ext = gl.getExtension('WEBGL_debug_renderer_info');
+        const raw = String(ext ? gl.getParameter(ext.UNMASKED_RENDERER_WEBGL)
+          : (gl.getParameter(gl.RENDERER) || ''));
+        this._gpuName = raw.replace(/^ANGLE \(|\)$/g, '').slice(0, 58);
+        const s = raw.toLowerCase();
+        // 软件光栅：浏览器「硬件加速」被关掉了。这种时候再怎么降画质都是 5~10fps，
+        // 唯一有效的是让玩家去开硬件加速，所以单独标出来给个提示。
+        this._softGL = /swiftshader|llvmpipe|software (rasterizer|adapter)|basic render/.test(s);
+        if (this._softGL) return 'low';
+        // 核显一律低档：笔记本双显卡时浏览器默认很可能挂在 Intel 核显上，
+        // 之前只看 hd/uhd graphics，漏了 Iris Xe 这类，判成 mid 就会卡。
+        if (/mali|adreno|powervr|qcom|hummingbird|intel/.test(s) && !/arc /.test(s)) return 'low';
+        if (/rtx|gtx|radeon rx|rx \d{3,4}|arc a|apple m\d|apple gpu|geforce|radeon pro/.test(s)) return 'high';
+        return 'mid';
+      } catch (e) { return 'mid'; }
+    }
+
+    // 切档：阴影精度 + bloom 开关 + 起始渲染比例，一次改完并落盘
+    applyQuality(name, persist) {
+      const key = this._qualityCfg[name] ? name : 'mid';
+      const cfg = this._qualityCfg[key];
+      this.quality = key;
+      this._resLevels = cfg.levels.slice();
+      this.resScale = cfg.start;
+      this._shadowMs = cfg.shadowMs;
+      this._emaDt = 16.7; this._slowN = this._goodN = 0; this._resCooldown = 0;
+      // bloom 三态：true=常开 / 'night'=仅夜间 / false=关
+      this._bloomMode = cfg.bloom;
+      if (this.bloomPass) this.bloomPass.enabled = cfg.bloom === true;
+      if (this.world && this.world.setShadowQuality) this.world.setShadowQuality(cfg.shadow);
+      this.resize();
+      if (persist) {
+        try { localStorage.setItem('fishingDuel.quality', key); } catch (e) { /* ignore */ }
+      }
+      this.refreshQualityUI();
+      return key;
+    }
+
+    refreshQualityUI() {
+      const btns = document.querySelectorAll('.qbtn');
+      for (let i = 0; i < btns.length; i++) {
+        btns[i].classList.toggle('on', btns[i].dataset.q === this.quality);
+      }
+      const tip = document.getElementById('qualityTip');
+      if (tip) {
+        tip.textContent = this.quality === 'high' ? '阴影 4096 · 开泛光 · 100% 分辨率（最高画质）'
+          : this.quality === 'low' ? '阴影 1024 · 关泛光 · 70% 分辨率（最流畅）'
+            : '阴影 2048 · 夜间泛光 · 90% 分辨率（推荐）';
+      }
+    }
+
+    updateStats(dtMs) {
+      this._fpsN++; this._fpsT += dtMs;
+      if (this._fpsT < 250) return;
+      const avg = this._fpsT / this._fpsN;
+      this._fpsEl.textContent = Math.round(1000 / avg) + ' fps · ' + avg.toFixed(1) + ' ms    画质 '
+        + this.quality + ' · 分辨率 ' + Math.round(this.resScale * 100) + '% · '
+        + window.innerWidth + '×' + window.innerHeight + '\n' + (this._gpuName || 'GPU 未知');
+      this._fpsN = 0; this._fpsT = 0;
     }
 
     // ================= 设备选择（电脑 / 手机）=================
     bindPlatform() {
       const overlay = document.getElementById('platformOverlay');
       const saved = localStorage.getItem('fishingDuel.device');
-      if (saved === 'mobile') document.body.classList.add('mobile');
+      const isTouch = ('ontouchstart' in window) || (navigator.maxTouchPoints || 0) > 0;
+      // 无手动选择时，触屏设备自动按手机处理，保证触屏按键直接出现
+      const device = saved || (isTouch ? 'mobile' : 'pc');
+      if (device === 'mobile') document.body.classList.add('mobile');
       if (saved) overlay.classList.add('hidden');
-      const choose = (device) => {
-        localStorage.setItem('fishingDuel.device', device);
-        document.body.classList.toggle('mobile', device === 'mobile');
+      const choose = (dev) => {
+        localStorage.setItem('fishingDuel.device', dev);
+        document.body.classList.toggle('mobile', dev === 'mobile');
         overlay.classList.add('hidden');
       };
       document.getElementById('platPC').addEventListener('click', () => choose('pc'));
       document.getElementById('platMobile').addEventListener('click', () => choose('mobile'));
+      this.isTouchDevice = device === 'mobile';
+      // 触摸按键是纯 CSS 显示 + pointer 事件，由下方 pointerdown 委托统一处理；
+      // 这里保留挂钩只为兼容旧调用，避免构造函数因缺方法直接抛错中断启动。
+      if (typeof this.bindTouch === 'function') this.bindTouch();
+    }
+
+    // 统一的“获取操作权”：PC 走 pointer lock，手机端直接置可操作标志
+    acquireControl() {
+      if (this.isTouchDevice) {
+        this.locked = true;
+        if (this.state === 'paused') this.state = 'playing';
+        this.ui.pauseOverlay.classList.add('hidden');
+        return;
+      }
+      // PC：请求锁定鼠标。必须在用户手势（点击）的回调里调用，
+      // 锁定成功后由 pointerlockchange 负责把 paused 切回 playing。
+      if (document.pointerLockElement === this.canvas) return;
+      if (this.canvas && this.canvas.requestPointerLock) {
+        try { this.canvas.requestPointerLock(); } catch (e) { /* 忽略，等玩家再点一次 */ }
+      }
+    }
+
+    // 手机端暂停（无 pointer lock 可退出，手动置暂停并弹菜单）
+    mobilePause() {
+      if (this.state !== 'playing') return;
+      this.state = 'paused';
+      this.locked = false;
+      this.input.fire = false;
+      this.input.aim = false;
+      this.fishing.cancelCharge();
+      this.ui.pauseOverlay.classList.remove('hidden');
+    }
+
+    // ================= 手机触屏控制 =================
+    bindTouch() {
+      const layer = document.getElementById('touchLayer');
+      this._touchLayer = layer;
+      // 触屏层显隐：仅在对局中出现，菜单/暂停时不拦截界面
+      this.updateTouchLayer = () => {
+        if (!layer) return;
+        const show = !!this.isTouchDevice && this.state === 'playing';
+        const want = show ? 'block' : 'none';
+        if (layer.style.display !== want) layer.style.display = want;
+      };
+      if (!layer) return;
+      const input = this.input;
+
+      // ---------- 左屏虚拟摇杆 ----------
+      const joy = document.getElementById('joystick');
+      const knob = joy.querySelector('.knob');
+      const JR = 46;
+      let joyId = null, jcx = 0, jcy = 0;
+      const moveJoy = (t) => {
+        let dx = t.clientX - jcx, dy = t.clientY - jcy;
+        const len = Math.hypot(dx, dy) || 1;
+        const cl = Math.min(len, JR);
+        dx = dx / len * cl; dy = dy / len * cl;
+        knob.style.transform = 'translate(' + dx + 'px,' + dy + 'px)';
+        const nx = dx / JR, ny = dy / JR, dead = 0.22;
+        input.forward = ny < -dead;
+        input.back = ny > dead;
+        input.left = nx < -dead;
+        input.right = nx > dead;
+      };
+      joy.addEventListener('touchstart', (e) => {
+        e.preventDefault();
+        const t = e.changedTouches[0];
+        joyId = t.identifier;
+        const r = joy.getBoundingClientRect();
+        jcx = r.left + r.width / 2; jcy = r.top + r.height / 2;
+        joy.classList.add('active');
+        moveJoy(t);
+      }, { passive: false });
+      joy.addEventListener('touchmove', (e) => {
+        e.preventDefault();
+        for (const t of e.changedTouches) if (t.identifier === joyId) moveJoy(t);
+      }, { passive: false });
+      const endJoy = (e) => {
+        for (const t of e.changedTouches) if (t.identifier === joyId) {
+          joyId = null;
+          joy.classList.remove('active');
+          knob.style.transform = '';
+          input.forward = input.back = input.left = input.right = false;
+        }
+      };
+      joy.addEventListener('touchend', endJoy, { passive: false });
+      joy.addEventListener('touchcancel', endJoy, { passive: false });
+
+      // ---------- 右屏滑动转视角 ----------
+      const lz = layer.querySelector('.look-zone');
+      let lookId = null, lx = 0, ly = 0;
+      lz.addEventListener('touchstart', (e) => {
+        e.preventDefault();
+        if (lookId === null) {
+          const t = e.changedTouches[0];
+          lookId = t.identifier; lx = t.clientX; ly = t.clientY;
+        }
+      }, { passive: false });
+      lz.addEventListener('touchmove', (e) => {
+        e.preventDefault();
+        for (const t of e.changedTouches) if (t.identifier === lookId) {
+          const dx = t.clientX - lx, dy = t.clientY - ly;
+          lx = t.clientX; ly = t.clientY;
+          if (this.state === 'playing') this.player.applyLook(dx, dy);
+        }
+      }, { passive: false });
+      const endLook = (e) => {
+        for (const t of e.changedTouches) if (t.identifier === lookId) lookId = null;
+      };
+      lz.addEventListener('touchend', endLook, { passive: false });
+      lz.addEventListener('touchcancel', endLook, { passive: false });
+
+      // ---------- 按住型按钮 ----------
+      const hold = (id, down, up) => {
+        const el = document.getElementById(id);
+        el.addEventListener('touchstart', (e) => { e.preventDefault(); e.stopPropagation(); down(); }, { passive: false });
+        const rel = (e) => { e.preventDefault(); if (up) up(); };
+        el.addEventListener('touchend', rel, { passive: false });
+        el.addEventListener('touchcancel', rel, { passive: false });
+      };
+      // 开火 / 鱼竿蓄力
+      hold('btnFire',
+        () => {
+          if (this.player.isRod() && !this.player.frozen) this.fishing.startCharge();
+          else input.fire = true;
+        },
+        () => {
+          if (this.fishing.state === 'charge') this.fishing.releaseCharge();
+          input.fire = false;
+        });
+      hold('btnAim', () => { input.aim = true; }, () => { input.aim = false; });
+      hold('btnJump', () => { input.jump = true; }, () => { input.jump = false; });
+
+      // ---------- 点按型按钮 ----------
+      const tap = (id, fn) => {
+        const el = document.getElementById(id);
+        el.addEventListener('touchstart', (e) => { e.preventDefault(); e.stopPropagation(); fn(); }, { passive: false });
+      };
+      tap('btnReload', () => {
+        if (this.player.reloading <= 0 && !this.player.isMelee() && this.player.ammo < this.player.magSize) {
+          this.player.startReload(); Sound.play('reload');
+        }
+      });
+      tap('btnInteract', () => this.interact());
+      tap('btnSwap', () => { this.player.switchNext(); Sound.play('swap'); });
+      tap('btnBackpack', () => this.toggleInGameOverlay('backpack'));
+      tap('btnPause', () => this.mobilePause());
     }
 
     // ================= 联机垂钓 =================
@@ -3330,7 +3678,8 @@
 
     openMpOverlay() {
       document.getElementById('mpNameInput').value = this.net.myName();
-      document.getElementById('mpHostText').textContent = window.NetworkManager.hostUrl();
+      document.getElementById('mpHostText').textContent =
+        window.NetworkManager.hostUrl() || '公共中继 broker.emqx.io（免账号）';
       document.getElementById('mpStatus').textContent = '';
       document.getElementById('mpOverlay').classList.remove('hidden');
     }
@@ -3505,7 +3854,7 @@
       this.input.sprint = false;
       this.input.crouch = false;
 
-      this.canvas.requestPointerLock();
+      this.acquireControl();
       this.updateHud();
       this.notice('自由垂钓中 · 按 3 取出鱼竿 · 长按左键蓄力抛竿 · 按 1/2 切枪打鸟打鱼', 'info');
     }
@@ -3711,6 +4060,8 @@
     animate() {
       const dt = Math.min(0.05, this.clock.getDelta());
       this.elapsed += dt;
+      this.updateTouchLayer();
+      if (this._statsOn) this.updateStats(dt * 1000);
 
       const inMenu = this.state === 'menu';
       // 菜单只是缓慢环绕的静态背景：跳过鱼群/海鸟/涟漪/船的逐帧模拟，
@@ -3749,10 +4100,14 @@
       this.updateHud();
       this.updateInteractHint();
 
-      // 动态 bloom：开火/受击时柔和泛光短暂增强（基线 0.42），hitstop 期间冻结增强
+      // 动态 bloom：开火/受击时柔和泛光短暂增强（基线 0.34），hitstop 期间冻结增强
       if (this.bloomPass && !inMenu) {
-        const targetStrength = 0.34 + Math.min(0.5, this.player.bloom) + (this.hitstop > 0 ? 0.18 : 0);
-        this.bloomPass.strength += (targetStrength - this.bloomPass.strength) * Math.min(1, dt * 8);
+        const wantBloom = this._bloomMode === true || (this._bloomMode === 'night' && this.wasNight);
+        if (this.bloomPass.enabled !== wantBloom) this.bloomPass.enabled = wantBloom;
+        if (wantBloom) {
+          const targetStrength = 0.34 + Math.min(0.5, this.player.bloom) + (this.hitstop > 0 ? 0.18 : 0);
+          this.bloomPass.strength += (targetStrength - this.bloomPass.strength) * Math.min(1, dt * 8);
+        }
       }
 
       // 阴影覆盖区跟随玩家：4096 的阴影图只铺在 68m 见方内，投影才够锐利
@@ -3765,6 +4120,14 @@
       // 直接 renderer.render 能立刻把主线程还给点击和 DOM。
       // 同时冻结 4096 阴影贴图：菜单场景与太阳都静止，阴影烘焙一次复用即可，
       // 不必每帧重渲这张大贴图（这是 GPU 侧最大的单笔开销）。
+      // 有素材刚加载完成 → 在本帧把它的着色器编掉。
+      // 放在渲染之前、且优先在非游戏状态执行：玩家这时多半还在加载/菜单界面，
+      // 卡的是菜单而不是走位；真在游戏里也不会漏编，只是多一顿。
+      if (this._warmPending) {
+        this._warmPending = false;
+        this._warmScene();
+      }
+
       if (inMenu) {
         this.renderer.shadowMap.autoUpdate = false;
         this.renderer.render(this.scene, this.camera);
@@ -3776,8 +4139,21 @@
         const sunUp = this.world.isSunUp ? this.world.isSunUp() : true;
         if (sunUp) {
           this.renderer.shadowMap.autoUpdate = false;
-          this._shadowTick = (this._shadowTick || 0) + 1;
-          if (this._shadowTick & 1) this.renderer.shadowMap.needsUpdate = true;
+          // 阴影按「时间」节流，不按帧数 —— 否则 144Hz 屏会比 60Hz 多画 2.4 倍的阴影图。
+          // 玩家站着钓鱼时角色不动 → 阴影完全冻结，这一大笔开销直接归零；
+          // 走路时按档位限频（高 30Hz / 中 20Hz / 低 10Hz），影子慢几十毫秒看不出来。
+          const every = this._shadowMs || 50;
+          this._shadowAcc = (this._shadowAcc || 0) + dt * 1000;
+          const pp = this.player.pos;
+          const dx = pp.x - (this._shX == null ? 1e9 : this._shX);
+          const dz = pp.z - (this._shZ == null ? 1e9 : this._shZ);
+          const moving = (dx * dx + dz * dz) > 0.02;
+          const wait = moving ? every : 600;
+          if (this._shadowAcc >= wait) {
+            this._shadowAcc = 0;
+            this.renderer.shadowMap.needsUpdate = true;
+            this._shX = pp.x; this._shZ = pp.z;
+          }
           this._shadowLive = true;
         } else if (this._shadowLive) {
           this._shadowLive = false;

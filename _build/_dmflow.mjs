@@ -3,7 +3,7 @@ const b = await puppeteer.launch({ executablePath: 'C:/Program Files (x86)/Micro
 const p = await b.newPage();
 await p.setViewport({ width: 1280, height: 760 });
 const errs = [];
-p.on('pageerror', e => errs.push(String(e).slice(0,240)));
+p.on("pageerror", e => errs.push(String(e.stack || e).slice(0,700)));
 await p.goto('file:///C:/Users/ASUS/Documents/Trae-CN/temp_20261108_01/fishing-duel/index.html?v='+Date.now(), { waitUntil:'load', timeout:120000 });
 await p.waitForFunction('window.game && window.game.world', { timeout:90000 });
 await new Promise(r=>setTimeout(r,2400));

@@ -20,3 +20,11 @@ _backup_original/
 # ===== 系统 / 编辑器杂项 =====
 .DS_Store
 Thumbs.db
+
+# ===== 本地诊断 / 测试脚本与打包副本（不进仓库）=====
+_build/_*.mjs
+_build/_*.cjs
+_build/inject_mqtt.py
+_build/make_deploy.py
+_serve.ps1
+fishing-duel-deploy.zip
